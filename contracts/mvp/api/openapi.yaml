@@ -1,0 +1,1830 @@
+openapi: "3.1.0"
+info:
+  title: Планы? MVP API
+  version: "0.1.0"
+  description: Contract-first MVP backend for the Планы? / Fest&Rest app.
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+security: []
+
+tags:
+  - name: auth
+  - name: users
+  - name: events
+  - name: venues
+  - name: plans
+  - name: proposals
+  - name: votes
+  - name: messages
+  - name: invitations
+  - name: groups
+  - name: notifications
+  - name: search
+
+paths:
+  /auth/otp/send:
+    post:
+      tags: [auth]
+      operationId: sendOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOtpRequest"
+      responses:
+        "200":
+          description: OTP sent
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/otp/verify:
+    post:
+      tags: [auth]
+      operationId: verifyOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpRequest"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+
+  /users/me:
+    get:
+      tags: [users]
+      operationId: getUserMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+    patch:
+      tags: [users]
+      operationId: patchUserMe
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchUserRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+
+  /users/{id}:
+    get:
+      tags: [users]
+      operationId: getUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+
+  /users/friends:
+    get:
+      tags: [users]
+      operationId: listFriends
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/FriendshipStatus"
+      responses:
+        "200":
+          description: Friend list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendListResponse"
+
+  /users/friends/{id}:
+    post:
+      tags: [users]
+      operationId: addFriend
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdParam"
+      responses:
+        "200":
+          description: Friendship created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendshipResponse"
+    delete:
+      tags: [users]
+      operationId: removeFriend
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdParam"
+      responses:
+        "204":
+          description: Friendship removed
+
+  /events:
+    get:
+      tags: [events]
+      operationId: listEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/EventCategory"
+        - name: tags
+          in: query
+          schema:
+            type: string
+          description: Comma-separated tags
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Event list with social proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventListResponse"
+
+  /events/{id}:
+    get:
+      tags: [events]
+      operationId: getEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Event detail with social proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events/{id}/interest:
+    post:
+      tags: [events]
+      operationId: addInterest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Interest added
+    delete:
+      tags: [events]
+      operationId: removeInterest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "204":
+          description: Interest removed
+
+  /events/{id}/save:
+    post:
+      tags: [events]
+      operationId: saveEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Event saved
+    delete:
+      tags: [events]
+      operationId: unsaveEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "204":
+          description: Event unsaved
+
+  /venues/{id}:
+    get:
+      tags: [venues]
+      operationId: getVenue
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      responses:
+        "200":
+          description: Venue detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /venues/{id}/events:
+    get:
+      tags: [venues]
+      operationId: listVenueEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Events at this venue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueEventListResponse"
+
+  /plans:
+    get:
+      tags: [plans]
+      operationId: listPlans
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lifecycle
+          in: query
+          schema:
+            $ref: "#/components/schemas/PlanLifecycle"
+        - name: participant
+          in: query
+          schema:
+            type: string
+          description: Filter to "me" for user's plans
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Plan list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanListResponse"
+    post:
+      tags: [plans]
+      operationId: createPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlanRequest"
+      responses:
+        "201":
+          description: Plan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+
+  /plans/{id}:
+    get:
+      tags: [plans]
+      operationId: getPlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Plan with participants, proposals, linked event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [plans]
+      operationId: patchPlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchPlanRequest"
+      responses:
+        "200":
+          description: Plan updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/finalize:
+    post:
+      tags: [plans]
+      operationId: finalizePlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizePlanRequest"
+      responses:
+        "200":
+          description: Plan finalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/unfinalize:
+    post:
+      tags: [plans]
+      operationId: unfinalizePlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Plan unfinalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/cancel:
+    post:
+      tags: [plans]
+      operationId: cancelPlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Plan cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/complete:
+    post:
+      tags: [plans]
+      operationId: completePlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Plan completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/repeat:
+    post:
+      tags: [plans]
+      operationId: repeatPlan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "201":
+          description: New plan created from repeat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDetailResponse"
+
+  /plans/{id}/participants:
+    get:
+      tags: [plans]
+      operationId: listParticipants
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Participant list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantListResponse"
+
+  /plans/{id}/participants/{uid}:
+    patch:
+      tags: [plans]
+      operationId: updateParticipantStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateParticipantRequest"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [plans]
+      operationId: removeParticipant
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Participant removed
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /plans/{id}/proposals:
+    get:
+      tags: [proposals]
+      operationId: listProposals
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProposalType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProposalStatus"
+      responses:
+        "200":
+          description: Proposal list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalListResponse"
+    post:
+      tags: [proposals]
+      operationId: createProposal
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProposalRequest"
+      responses:
+        "201":
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalResponse"
+
+  /plans/{id}/proposals/{pid}/vote:
+    post:
+      tags: [votes]
+      operationId: vote
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteResponse"
+        "409":
+          description: Max votes exceeded for this type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [votes]
+      operationId: unvote
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Vote removed
+
+  /plans/{id}/messages:
+    get:
+      tags: [messages]
+      operationId: listMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Message list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageListResponse"
+    post:
+      tags: [messages]
+      operationId: sendMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /invitations:
+    get:
+      tags: [invitations]
+      operationId: listInvitations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/InvitationStatus"
+      responses:
+        "200":
+          description: Invitation list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationListResponse"
+
+  /invitations/{id}:
+    patch:
+      tags: [invitations]
+      operationId: respondInvitation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RespondInvitationRequest"
+      responses:
+        "200":
+          description: Invitation updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationResponse"
+
+  /groups:
+    get:
+      tags: [groups]
+      operationId: listGroups
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Group list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupListResponse"
+    post:
+      tags: [groups]
+      operationId: createGroup
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupDetailResponse"
+
+  /groups/{id}:
+    get:
+      tags: [groups]
+      operationId: getGroup
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Group with members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /groups/{id}/members:
+    post:
+      tags: [groups]
+      operationId: addGroupMember
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMemberRequest"
+      responses:
+        "200":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /groups/{id}/members/{uid}:
+    delete:
+      tags: [groups]
+      operationId: removeGroupMember
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Member removed
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /search/events:
+    get:
+      tags: [search]
+      operationId: searchEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/EventCategory"
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventListResponse"
+
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationListResponse"
+
+  /notifications/{id}/read:
+    patch:
+      tags: [notifications]
+      operationId: markNotificationRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Notification marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationResponse"
+
+  /notifications/read-all:
+    patch:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: All notifications marked read
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VenueId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PlanId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Invalid or missing credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Not authorized for this action
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    # --- Enums ---
+    EventCategory:
+      type: string
+      enum: [music, theatre, exhibition, sport, food, party, workshop, other]
+    ActivityType:
+      type: string
+      enum: [cinema, coffee, bar, walk, dinner, sport, exhibition, other]
+    FriendshipStatus:
+      type: string
+      enum: [pending, accepted]
+    PlaceStatus:
+      type: string
+      enum: [confirmed, proposed, undecided]
+    TimeStatus:
+      type: string
+      enum: [confirmed, proposed, undecided]
+    PlanLifecycle:
+      type: string
+      enum: [active, finalized, completed, cancelled]
+    ParticipantStatus:
+      type: string
+      enum: [invited, going, thinking, cant]
+    ProposalType:
+      type: string
+      enum: [place, time]
+    ProposalStatus:
+      type: string
+      enum: [active, finalized, superseded]
+    InvitationType:
+      type: string
+      enum: [plan, group]
+    InvitationStatus:
+      type: string
+      enum: [pending, accepted, declined]
+    NotificationType:
+      type: string
+      enum: [plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed]
+    MessageType:
+      type: string
+      enum: [user, system, proposal_card]
+
+    # --- Domain objects ---
+    User:
+      type: object
+      required: [id, phone, name, username, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        phone:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Venue:
+      type: object
+      required: [id, name, description, address, lat, lng, cover_image_url, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        address:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        cover_image_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Event:
+      type: object
+      required: [id, venue_id, title, description, cover_image_url, starts_at, ends_at, category, tags, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        venue_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        cover_image_url:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        category:
+          $ref: "#/components/schemas/EventCategory"
+        tags:
+          type: array
+          items:
+            type: string
+        price_info:
+          type: string
+          nullable: true
+        external_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    EventWithSocial:
+      allOf:
+        - $ref: "#/components/schemas/Event"
+        - type: object
+          required: [venue, friends_interested, friends_plan_count]
+          properties:
+            venue:
+              $ref: "#/components/schemas/Venue"
+            friends_interested:
+              type: array
+              items:
+                $ref: "#/components/schemas/User"
+            friends_plan_count:
+              type: integer
+
+    Plan:
+      type: object
+      required: [id, creator_id, title, activity_type, place_status, time_status, lifecycle_state, pre_meet_enabled, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        creator_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        activity_type:
+          $ref: "#/components/schemas/ActivityType"
+        linked_event_id:
+          type: string
+          format: uuid
+          nullable: true
+        place_status:
+          $ref: "#/components/schemas/PlaceStatus"
+        time_status:
+          $ref: "#/components/schemas/TimeStatus"
+        confirmed_place_text:
+          type: string
+          nullable: true
+        confirmed_place_lat:
+          type: number
+          nullable: true
+        confirmed_place_lng:
+          type: number
+          nullable: true
+        confirmed_time:
+          type: string
+          format: date-time
+          nullable: true
+        lifecycle_state:
+          $ref: "#/components/schemas/PlanLifecycle"
+        pre_meet_enabled:
+          type: boolean
+        pre_meet_place_text:
+          type: string
+          nullable: true
+        pre_meet_time:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PlanFull:
+      allOf:
+        - $ref: "#/components/schemas/Plan"
+        - type: object
+          required: [participants, proposals]
+          properties:
+            linked_event:
+              $ref: "#/components/schemas/EventWithSocial"
+              nullable: true
+            participants:
+              type: array
+              items:
+                $ref: "#/components/schemas/PlanParticipantWithUser"
+            proposals:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProposalWithVotes"
+
+    PlanParticipantWithUser:
+      type: object
+      required: [id, plan_id, user_id, status, joined_at, user]
+      properties:
+        id:
+          type: string
+          format: uuid
+        plan_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ParticipantStatus"
+        joined_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+
+    ProposalWithVotes:
+      type: object
+      required: [id, plan_id, proposer_id, type, value_text, status, created_at, votes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        plan_id:
+          type: string
+          format: uuid
+        proposer_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ProposalType"
+        value_text:
+          type: string
+        value_lat:
+          type: number
+          nullable: true
+        value_lng:
+          type: number
+          nullable: true
+        value_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ProposalStatus"
+        created_at:
+          type: string
+          format: date-time
+        votes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Vote"
+
+    Vote:
+      type: object
+      required: [id, proposal_id, voter_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        proposal_id:
+          type: string
+          format: uuid
+        voter_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    MessageWithSender:
+      type: object
+      required: [id, context_type, context_id, sender_id, text, type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        context_type:
+          type: string
+          enum: [plan]
+        context_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        type:
+          $ref: "#/components/schemas/MessageType"
+        reference_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        sender:
+          $ref: "#/components/schemas/User"
+
+    InvitationWithTarget:
+      type: object
+      required: [id, type, target_id, inviter_id, invitee_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/InvitationType"
+        target_id:
+          type: string
+          format: uuid
+        inviter_id:
+          type: string
+          format: uuid
+        invitee_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/InvitationStatus"
+        created_at:
+          type: string
+          format: date-time
+        plan:
+          $ref: "#/components/schemas/Plan"
+          nullable: true
+        group:
+          $ref: "#/components/schemas/GroupStub"
+          nullable: true
+
+    GroupStub:
+      type: object
+      required: [id, name, creator_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        creator_id:
+          type: string
+          format: uuid
+        avatar_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    GroupDetail:
+      allOf:
+        - $ref: "#/components/schemas/GroupStub"
+        - type: object
+          required: [members]
+          properties:
+            members:
+              type: array
+              items:
+                $ref: "#/components/schemas/GroupMemberWithUser"
+
+    GroupMemberWithUser:
+      type: object
+      required: [id, group_id, user_id, role, joined_at, user]
+      properties:
+        id:
+          type: string
+          format: uuid
+        group_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [member]
+        joined_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+
+    Notification:
+      type: object
+      required: [id, user_id, type, payload, read, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        payload:
+          type: object
+        read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    # --- Request bodies ---
+    SendOtpRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          pattern: "^\\+7[0-9]{10}$"
+
+    VerifyOtpRequest:
+      type: object
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+          minLength: 4
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    PatchUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        username:
+          type: string
+        avatar_url:
+          type: string
+
+    CreatePlanRequest:
+      type: object
+      required: [title, activity_type, participant_ids]
+      properties:
+        title:
+          type: string
+        activity_type:
+          $ref: "#/components/schemas/ActivityType"
+        linked_event_id:
+          type: string
+          format: uuid
+        confirmed_place_text:
+          type: string
+        confirmed_place_lat:
+          type: number
+        confirmed_place_lng:
+          type: number
+        confirmed_time:
+          type: string
+          format: date-time
+        pre_meet_enabled:
+          type: boolean
+        pre_meet_place_text:
+          type: string
+        pre_meet_time:
+          type: string
+          format: date-time
+        participant_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 14
+
+    PatchPlanRequest:
+      type: object
+      properties:
+        pre_meet_enabled:
+          type: boolean
+        pre_meet_place_text:
+          type: string
+        pre_meet_time:
+          type: string
+          format: date-time
+
+    FinalizePlanRequest:
+      type: object
+      properties:
+        place_proposal_id:
+          type: string
+          format: uuid
+        time_proposal_id:
+          type: string
+          format: uuid
+
+    UpdateParticipantRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/ParticipantStatus"
+
+    CreateProposalRequest:
+      type: object
+      required: [type, value_text]
+      properties:
+        type:
+          $ref: "#/components/schemas/ProposalType"
+        value_text:
+          type: string
+        value_lat:
+          type: number
+        value_lng:
+          type: number
+        value_datetime:
+          type: string
+          format: date-time
+
+    SendMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+
+    RespondInvitationRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [accepted, declined]
+
+    CreateGroupRequest:
+      type: object
+      required: [name, member_ids]
+      properties:
+        name:
+          type: string
+        member_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    AddGroupMemberRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+
+    # --- Response wrappers ---
+    AuthResponse:
+      type: object
+      required: [access_token, refresh_token, user]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+
+    UserResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+
+    FriendListResponse:
+      type: object
+      required: [friends]
+      properties:
+        friends:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+
+    FriendshipResponse:
+      type: object
+      required: [friendship]
+      properties:
+        friendship:
+          type: object
+          required: [id, requester_id, addressee_id, status, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            requester_id:
+              type: string
+              format: uuid
+            addressee_id:
+              type: string
+              format: uuid
+            status:
+              $ref: "#/components/schemas/FriendshipStatus"
+            created_at:
+              type: string
+              format: date-time
+
+    EventListResponse:
+      type: object
+      required: [events, total]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventWithSocial"
+        total:
+          type: integer
+
+    EventDetailResponse:
+      type: object
+      required: [event]
+      properties:
+        event:
+          $ref: "#/components/schemas/EventWithSocial"
+
+    VenueResponse:
+      type: object
+      required: [venue]
+      properties:
+        venue:
+          $ref: "#/components/schemas/Venue"
+
+    VenueEventListResponse:
+      type: object
+      required: [events, total]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventWithSocial"
+        total:
+          type: integer
+
+    PlanListResponse:
+      type: object
+      required: [plans, total]
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanFull"
+        total:
+          type: integer
+
+    PlanDetailResponse:
+      type: object
+      required: [plan]
+      properties:
+        plan:
+          $ref: "#/components/schemas/PlanFull"
+
+    ParticipantListResponse:
+      type: object
+      required: [participants]
+      properties:
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanParticipantWithUser"
+
+    ParticipantResponse:
+      type: object
+      required: [participant]
+      properties:
+        participant:
+          $ref: "#/components/schemas/PlanParticipantWithUser"
+
+    ProposalListResponse:
+      type: object
+      required: [proposals]
+      properties:
+        proposals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProposalWithVotes"
+
+    ProposalResponse:
+      type: object
+      required: [proposal]
+      properties:
+        proposal:
+          $ref: "#/components/schemas/ProposalWithVotes"
+
+    VoteResponse:
+      type: object
+      required: [vote]
+      properties:
+        vote:
+          $ref: "#/components/schemas/Vote"
+
+    MessageListResponse:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageWithSender"
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/MessageWithSender"
+
+    InvitationListResponse:
+      type: object
+      required: [invitations]
+      properties:
+        invitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvitationWithTarget"
+
+    InvitationResponse:
+      type: object
+      required: [invitation]
+      properties:
+        invitation:
+          $ref: "#/components/schemas/InvitationWithTarget"
+
+    GroupListResponse:
+      type: object
+      required: [groups]
+      properties:
+        groups:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/GroupStub"
+              - type: object
+                required: [member_count]
+                properties:
+                  member_count:
+                    type: integer
+
+    GroupDetailResponse:
+      type: object
+      required: [group]
+      properties:
+        group:
+          $ref: "#/components/schemas/GroupDetail"
+
+    GroupMemberResponse:
+      type: object
+      required: [member]
+      properties:
+        member:
+          $ref: "#/components/schemas/GroupMemberWithUser"
+
+    NotificationListResponse:
+      type: object
+      required: [notifications, unread_count]
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unread_count:
+          type: integer
+
+    NotificationResponse:
+      type: object
+      required: [notification]
+      properties:
+        notification:
+          $ref: "#/components/schemas/Notification"
