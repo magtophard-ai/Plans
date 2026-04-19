@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { query } from '../db/pool.js';
+import { pool, query } from '../db/pool.js';
 
 export async function invitationRoutes(app: FastifyInstance) {
   app.get('/', { preHandler: [(app as any).authenticate] }, async (request) => {
@@ -40,20 +40,53 @@ export async function invitationRoutes(app: FastifyInstance) {
     if (inv.invitee_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Not your invitation' });
     if (inv.status !== 'pending') return reply.code(400).send({ code: 'ALREADY_RESPONDED', message: 'Invitation already responded to' });
 
-    await query('UPDATE invitations SET status = $1 WHERE id = $2', [status, id]);
+    if (status === 'declined') {
+      await query("UPDATE invitations SET status = 'declined' WHERE id = $1", [id]);
+      const updated = (await query('SELECT * FROM invitations WHERE id = $1', [id])).rows[0];
+      return { invitation: { ...updated, plan: null, group: null } };
+    }
 
-    if (status === 'accepted' && inv.type === 'plan') {
-      const existing = (await query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [inv.target_id, userId])).rows[0];
-      if (!existing) {
-        const count = (await query('SELECT COUNT(*) as c FROM plan_participants WHERE plan_id = $1', [inv.target_id])).rows[0].c;
-        if (parseInt(count) >= 15) return reply.code(409).send({ code: 'PLAN_FULL', message: 'Plan has max 15 participants' });
-        await query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [inv.target_id, userId]);
+    // accepted — use transaction for atomicity
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // lock the plan row to prevent concurrent accepts exceeding 15
+      if (inv.type === 'plan') {
+        const plan = (await client.query('SELECT id FROM plans WHERE id = $1 FOR UPDATE', [inv.target_id])).rows[0];
+        if (!plan) { await client.query('ROLLBACK'); client.release(); return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' }); }
+
+        const existing = (await client.query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [inv.target_id, userId])).rows[0];
+        if (existing) {
+          await client.query("UPDATE invitations SET status = 'accepted' WHERE id = $1", [id]);
+          await client.query('COMMIT');
+          client.release();
+          const updated = (await query('SELECT * FROM invitations WHERE id = $1', [id])).rows[0];
+          let planStub = (await query('SELECT id, title, activity_type, lifecycle_state, creator_id, created_at FROM plans WHERE id = $1', [inv.target_id])).rows[0] || null;
+          return { invitation: { ...updated, plan: planStub, group: null } };
+        }
+
+        const count = (await client.query('SELECT COUNT(*) as c FROM plan_participants WHERE plan_id = $1', [inv.target_id])).rows[0].c;
+        if (parseInt(count) >= 15) {
+          await client.query('ROLLBACK');
+          client.release();
+          return reply.code(409).send({ code: 'PLAN_FULL', message: 'Plan has max 15 participants' });
+        }
+
+        await client.query("UPDATE invitations SET status = 'accepted' WHERE id = $1", [id]);
+        await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [inv.target_id, userId]);
+      } else if (inv.type === 'group') {
+        await client.query("UPDATE invitations SET status = 'accepted' WHERE id = $1", [id]);
+        await client.query("INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (group_id, user_id) DO NOTHING", [inv.target_id, userId]);
       }
-    }
 
-    if (status === 'accepted' && inv.type === 'group') {
-      await query("INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (group_id, user_id) DO NOTHING", [inv.target_id, userId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw err;
     }
+    client.release();
 
     const updated = (await query('SELECT * FROM invitations WHERE id = $1', [id])).rows[0];
     let plan = null, group = null;

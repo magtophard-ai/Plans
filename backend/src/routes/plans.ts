@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { query } from '../db/pool.js';
+import { pool, query } from '../db/pool.js';
 
 async function getPlanFull(planId: string) {
   const plan = (await query('SELECT * FROM plans WHERE id = $1', [planId])).rows[0];
@@ -79,34 +79,40 @@ export async function planRoutes(app: FastifyInstance) {
     const body = request.body as any;
     const { title, activity_type, linked_event_id, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, pre_meet_enabled, pre_meet_place_text, pre_meet_time, participant_ids } = body;
 
+    const others = (participant_ids || []).filter((id: string) => id !== userId);
+    if (1 + others.length > 15) return reply.code(409).send({ code: 'PLAN_FULL', message: 'Max 15 participants including creator' });
+
     const place_status = confirmed_place_text ? 'confirmed' : 'undecided';
     const time_status = confirmed_time ? 'confirmed' : 'undecided';
 
-    const plan = (await query(
-      `INSERT INTO plans (creator_id, title, activity_type, linked_event_id, place_status, time_status, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, pre_meet_enabled, pre_meet_place_text, pre_meet_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-      [userId, title, activity_type || 'other', linked_event_id || null, place_status, time_status, confirmed_place_text || null, confirmed_place_lat || null, confirmed_place_lng || null, confirmed_time || null, pre_meet_enabled || false, pre_meet_place_text || null, pre_meet_time || null]
-    )).rows[0];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    await query(
-      `INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')`,
-      [plan.id, userId]
-    );
+      const plan = (await client.query(
+        `INSERT INTO plans (creator_id, title, activity_type, linked_event_id, place_status, time_status, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, pre_meet_enabled, pre_meet_place_text, pre_meet_time)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        [userId, title, activity_type || 'other', linked_event_id || null, place_status, time_status, confirmed_place_text || null, confirmed_place_lat || null, confirmed_place_lng || null, confirmed_time || null, pre_meet_enabled || false, pre_meet_place_text || null, pre_meet_time || null]
+      )).rows[0];
 
-    const others = (participant_ids || []).filter((id: string) => id !== userId);
-    for (const pid of others) {
-      await query(`INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')`, [plan.id, pid]);
-      await query(
-        `INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')`,
-        [plan.id, userId, pid]
-      );
-      await query(
-        `INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)`,
-        [pid, JSON.stringify({ plan_id: plan.id, inviter_name: (await query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name })]
-      );
+      await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [plan.id, userId]);
+
+      const inviterName = (await client.query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
+
+      for (const pid of others) {
+        await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [plan.id, pid]);
+        await client.query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [plan.id, userId, pid]);
+        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [pid, JSON.stringify({ plan_id: plan.id, inviter_name: inviterName })]);
+      }
+
+      await client.query('COMMIT');
+      return reply.code(201).send({ plan: await getPlanFull(plan.id) });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-
-    return reply.code(201).send({ plan: await getPlanFull(plan.id) });
   });
 
   app.get('/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
@@ -140,6 +146,7 @@ export async function planRoutes(app: FastifyInstance) {
     const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
     if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
     if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can cancel' });
+    if (!['active', 'finalized'].includes(plan.lifecycle_state)) return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only cancel active or finalized plans' });
     await query("UPDATE plans SET lifecycle_state = 'cancelled', updated_at = now() WHERE id = $1", [id]);
     return { plan: await getPlanFull(id) };
   });
@@ -150,6 +157,7 @@ export async function planRoutes(app: FastifyInstance) {
     const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
     if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
     if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can complete' });
+    if (!['finalized', 'active'].includes(plan.lifecycle_state)) return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only complete finalized or active plans' });
     await query("UPDATE plans SET lifecycle_state = 'completed', updated_at = now() WHERE id = $1", [id]);
     return { plan: await getPlanFull(id) };
   });

@@ -5,6 +5,7 @@ import type { Message } from '../types';
 import { useNotificationsStore } from './notificationsStore';
 import { useAuthStore } from './authStore';
 import { mockUsers } from '../mocks';
+import * as plansApi from '../api/plans';
 
 const MAX_VOTES_PER_TYPE = 2;
 const MAX_PARTICIPANTS = 15;
@@ -12,6 +13,7 @@ const MAX_PARTICIPANTS = 15;
 interface PlansState {
   plans: Plan[];
   messages: Record<string, Message[]>;
+  loading: boolean;
   addPlan: (plan: Plan) => void;
   updatePlanState: (planId: string, state: PlanLifecycle) => void;
   finalizePlan: (planId: string, placeProposalId?: string, timeProposalId?: string) => void;
@@ -26,11 +28,19 @@ interface PlansState {
   inviteParticipant: (planId: string, userId: string) => void;
   removeParticipant: (planId: string, userId: string) => void;
   leavePlan: (planId: string, userId: string) => void;
+  fetchMyPlans: () => Promise<void>;
+  fetchPlan: (planId: string) => Promise<void>;
+  apiCreatePlan: (data: Parameters<typeof plansApi.createPlan>[0]) => Promise<string>;
+  apiUpdateParticipantStatus: (planId: string, userId: string, status: ParticipantStatus) => Promise<void>;
+  apiRemoveParticipant: (planId: string, userId: string) => Promise<void>;
+  apiCancelPlan: (planId: string) => Promise<void>;
+  apiCompletePlan: (planId: string) => Promise<void>;
 }
 
 export const usePlansStore = create<PlansState>((set, get) => ({
   plans: mockPlans,
   messages: mockMessages,
+  loading: false,
   addPlan: (plan) => set((s) => ({ plans: [plan, ...s.plans] })),
   updatePlanState: (planId, state) => set((s) => ({
     plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: state } : p),
@@ -224,4 +234,56 @@ export const usePlansStore = create<PlansState>((set, get) => ({
       participants: (p.participants || []).filter((pp) => pp.user_id !== userId),
     }),
   })),
+  fetchMyPlans: async () => {
+    set({ loading: true });
+    try {
+      const res = await plansApi.fetchPlans({ participant: 'me' });
+      set({ plans: res.plans, loading: false });
+    } catch {
+      set({ loading: false });
+    }
+  },
+  fetchPlan: async (planId) => {
+    try {
+      const plan = await plansApi.fetchPlan(planId);
+      set((s) => ({
+        plans: s.plans.some((p) => p.id === planId) ? s.plans.map((p) => p.id === planId ? plan : p) : [plan, ...s.plans],
+      }));
+    } catch {}
+  },
+  apiCreatePlan: async (data) => {
+    const plan = await plansApi.createPlan(data);
+    set((s) => ({ plans: [plan, ...s.plans] }));
+    return plan.id;
+  },
+  apiUpdateParticipantStatus: async (planId, userId, status) => {
+    await plansApi.updateParticipantStatus(planId, userId, status);
+    set((s) => ({
+      plans: s.plans.map((p) => p.id !== planId ? p : {
+        ...p,
+        participants: p.participants?.map((pp) => pp.user_id === userId ? { ...pp, status } : pp),
+      }),
+    }));
+  },
+  apiRemoveParticipant: async (planId, userId) => {
+    await plansApi.removeParticipant(planId, userId);
+    set((s) => ({
+      plans: s.plans.map((p) => p.id !== planId ? p : {
+        ...p,
+        participants: (p.participants || []).filter((pp) => pp.user_id !== userId),
+      }),
+    }));
+  },
+  apiCancelPlan: async (planId) => {
+    await plansApi.cancelPlan(planId);
+    set((s) => ({
+      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'cancelled' as PlanLifecycle } : p),
+    }));
+  },
+  apiCompletePlan: async (planId) => {
+    await plansApi.completePlan(planId);
+    set((s) => ({
+      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'completed' as PlanLifecycle } : p),
+    }));
+  },
 }));

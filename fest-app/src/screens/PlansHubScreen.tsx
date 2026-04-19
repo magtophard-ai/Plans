@@ -23,7 +23,10 @@ export const PlansHubScreen = ({ navigation }: Props) => {
   const plans = usePlansStore((s) => s.plans);
   const userId = useAuthStore((s) => s.user?.id) ?? '';
   const groups = useGroupsStore((s) => s.groups);
-  const { invitations, accept, decline } = useInvitationsStore();
+  const { invitations, accept, decline, fetchInvitations } = useInvitationsStore();
+  const fetchMyPlans = usePlansStore((s) => s.fetchMyPlans);
+
+  React.useEffect(() => { fetchMyPlans(); fetchInvitations(); }, []);
 
   const pendingInvitations = invitations.filter((i) => i.status === 'pending');
   const activePlans = plans.filter((p) => p.lifecycle_state === 'active' || p.lifecycle_state === 'finalized');

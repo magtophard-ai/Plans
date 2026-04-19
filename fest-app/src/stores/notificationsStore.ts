@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Notification, NotificationType } from '../types';
 import { mockNotifications } from '../mocks';
+import * as notificationsApi from '../api/notifications';
 
 interface NotificationsState {
   notifications: Notification[];
@@ -8,6 +9,7 @@ interface NotificationsState {
   addNotification: (userId: string, type: NotificationType, payload: Record<string, unknown>) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
+  fetchNotifications: () => Promise<void>;
 }
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
@@ -28,9 +30,19 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   markRead: (id) => {
     const notifications = get().notifications.map((n) => n.id === id ? { ...n, read: true } : n);
     set({ notifications, unreadCount: notifications.filter((n) => !n.read).length });
+    notificationsApi.markNotificationRead(id).catch(() => {});
   },
-  markAllRead: () => set((s) => ({
-    notifications: s.notifications.map((n) => ({ ...n, read: true })),
-    unreadCount: 0,
-  })),
+  markAllRead: () => {
+    set((s) => ({
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+      unreadCount: 0,
+    }));
+    notificationsApi.markAllNotificationsRead().catch(() => {});
+  },
+  fetchNotifications: async () => {
+    try {
+      const res = await notificationsApi.fetchNotifications(50);
+      set({ notifications: res.notifications, unreadCount: res.unreadCount });
+    } catch {}
+  },
 }));

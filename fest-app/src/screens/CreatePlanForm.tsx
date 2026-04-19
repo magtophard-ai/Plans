@@ -29,6 +29,7 @@ interface Props {
 export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVenue, linkedEventTime, onDone, preselectedGroupIds }: Props) => {
   const user = useAuthStore((s) => s.user);
   const addPlan = usePlansStore((s) => s.addPlan);
+  const apiCreatePlan = usePlansStore((s) => s.apiCreatePlan);
   const groups = useGroupsStore((s) => s.groups);
   const addInvitation = useInvitationsStore((s) => s.addInvitation);
 
@@ -76,7 +77,7 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
 
   const selectedCount = friends.filter((f) => f.selected).length;
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!user || !title.trim()) return;
     const selectedFriendIds = friends.filter((f) => f.selected).map((f) => f.id);
     if (1 + selectedFriendIds.length > MAX_PARTICIPANTS) {
@@ -126,7 +127,23 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
     selectedFriendIds.forEach((friendId) => {
       addInvitation('plan', planId, user.id, friendId);
     });
-    onDone(planId);
+
+    try {
+      const apiPlanId = await apiCreatePlan({
+        title: title.trim(),
+        activity_type: activityType,
+        linked_event_id: linkedEventId ?? undefined,
+        confirmed_place_text: placeText.trim() || undefined,
+        confirmed_time: timeText.trim() || undefined,
+        pre_meet_enabled: preMeetEnabled,
+        pre_meet_place_text: preMeetEnabled ? preMeetPlace.trim() || undefined : undefined,
+        pre_meet_time: preMeetEnabled ? preMeetTime.trim() || undefined : undefined,
+        participant_ids: selectedFriendIds,
+      });
+      onDone(apiPlanId || planId);
+    } catch {
+      onDone(planId);
+    }
   };
 
   const activities: ActivityType[] = ['cinema', 'coffee', 'bar', 'walk', 'dinner', 'sport', 'exhibition', 'other'];

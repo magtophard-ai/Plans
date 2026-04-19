@@ -22,12 +22,14 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const { planId } = route.params;
   const plans = usePlansStore((s) => s.plans);
   const messages = usePlansStore((s) => s.messages);
-  const { updateParticipantStatus, addProposal, vote, unvote, finalizePlan, unfinalizePlan, cancelPlan, completePlan, addMessage, addPlan, inviteParticipant, removeParticipant, leavePlan } = usePlansStore();
+  const { updateParticipantStatus, addProposal, vote, unvote, finalizePlan, unfinalizePlan, cancelPlan, completePlan, addMessage, addPlan, inviteParticipant, removeParticipant, leavePlan, fetchPlan, apiUpdateParticipantStatus, apiRemoveParticipant, apiCancelPlan, apiCompletePlan } = usePlansStore();
   const addInvitation = useInvitationsStore((s) => s.addInvitation);
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'details' | 'chat'>('details');
   const [chatInput, setChatInput] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
+
+  React.useEffect(() => { fetchPlan(planId); }, [planId]);
 
   const plan = plans.find((p) => p.id === planId);
   if (!plan || !user) return <ScreenContainer><View style={s.inner}><EmptyState text="План не найден" /></View></ScreenContainer>;
@@ -53,7 +55,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   };
 
   const handleSetStatus = (status: ParticipantStatus) => {
-    if (myParticipation) updateParticipantStatus(planId, user.id, status);
+    if (myParticipation) apiUpdateParticipantStatus(planId, user.id, status);
   };
 
   const handleInviteFriend = (friendId: string) => {
@@ -65,14 +67,14 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const handleRemoveParticipant = (userId: string) => {
     Alert.alert('Удалить участника', 'Вы уверены?', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Удалить', style: 'destructive', onPress: () => removeParticipant(planId, userId) },
+      { text: 'Удалить', style: 'destructive', onPress: () => apiRemoveParticipant(planId, userId) },
     ]);
   };
 
   const handleLeave = () => {
     Alert.alert('Покинуть план', 'Вы уверены?', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Покинуть', style: 'destructive', onPress: () => { leavePlan(planId, user!.id); navigation.goBack(); } },
+      { text: 'Покинуть', style: 'destructive', onPress: () => { apiRemoveParticipant(planId, user!.id); navigation.goBack(); } },
     ]);
   };
 
@@ -144,7 +146,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
         </View>
 
         {tab === 'details' ? (
-          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={vote} onUnvote={unvote} onFinalize={finalizePlan} onUnfinalize={unfinalizePlan} onCancel={cancelPlan} onComplete={completePlan} onAddProposal={addProposal} onRepeat={handleRepeat} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} />
+          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={vote} onUnvote={unvote} onFinalize={finalizePlan} onUnfinalize={unfinalizePlan} onCancel={cancelPlan} onComplete={completePlan} onAddProposal={addProposal} onRepeat={handleRepeat} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} onApiCancel={apiCancelPlan} onApiComplete={apiCompletePlan} />
         ) : (
           <ChatTab messages={planMessages} input={chatInput} setInput={setChatInput} onSend={handleSend} planId={planId} onVote={vote} onUnvote={unvote} userId={user.id} />
         )}
@@ -175,7 +177,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   );
 };
 
-const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, onFinalize, onUnfinalize, onCancel, onComplete, onAddProposal, onRepeat, onInvite, onRemove, onLeave }: {
+const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, onFinalize, onUnfinalize, onCancel, onComplete, onAddProposal, onRepeat, onInvite, onRemove, onLeave, onApiCancel, onApiComplete }: {
   plan: Plan; isCreator: boolean; myStatus: ParticipantStatus;
   onSetStatus: (s: ParticipantStatus) => void;
   onVote: (planId: string, proposalId: string, userId: string) => void;
@@ -189,6 +191,8 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
   onInvite: () => void;
   onRemove?: (userId: string) => void;
   onLeave?: () => void;
+  onApiCancel: (planId: string) => void;
+  onApiComplete: (planId: string) => void;
 }) => {
   const user = useAuthStore((s) => s.user);
   const [propModalVisible, setPropModalVisible] = useState(false);
@@ -361,11 +365,11 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
               </TouchableOpacity>
             )}
             {plan.lifecycle_state === 'active' && !(plan.place_status === 'confirmed' && plan.time_status === 'confirmed') && (
-              <TouchableOpacity style={s.completeBtn} onPress={() => onComplete(plan.id)}>
+              <TouchableOpacity style={s.completeBtn} onPress={() => onApiComplete(plan.id)}>
                 <Text style={s.completeBtnText}>Завершить план</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={s.cancelBtn} onPress={() => onCancel(plan.id)}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => onApiCancel(plan.id)}>
               <Text style={s.cancelBtnText}>Отменить план</Text>
             </TouchableOpacity>
           </View>

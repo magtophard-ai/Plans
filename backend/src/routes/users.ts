@@ -22,13 +22,6 @@ export async function userRoutes(app: FastifyInstance) {
     return { user };
   });
 
-  app.get('/:id', { preHandler: [(app as any).authenticate] }, async (request) => {
-    const { id } = request.params as { id: string };
-    const user = (await query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
-    if (!user) return (request as any).code(404).send({ code: 'NOT_FOUND', message: 'User not found' });
-    return { user };
-  });
-
   app.get('/friends', { preHandler: [(app as any).authenticate] }, async (request) => {
     const userId = (request.user as any).userId;
     const { status } = request.query as { status?: string };
@@ -41,6 +34,13 @@ export async function userRoutes(app: FastifyInstance) {
       [userId]
     )).rows;
     return { friends: rows };
+  });
+
+  app.get('/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const user = (await query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
+    if (!user) return reply.code(404).send({ code: 'NOT_FOUND', message: 'User not found' });
+    return { user };
   });
 
   app.post('/friends/:id', { preHandler: [(app as any).authenticate] }, async (request) => {

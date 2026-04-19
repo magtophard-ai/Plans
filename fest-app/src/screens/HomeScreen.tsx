@@ -19,9 +19,11 @@ type NavType = CompositeNavigationProp<
 >;
 
 export const HomeScreen = () => {
-  const { events, interestedIds, savedIds, categoryFilter, toggleInterest, toggleSave, setCategoryFilter } = useEventsStore();
+  const { events, interestedIds, savedIds, categoryFilter, toggleInterest, toggleSave, setCategoryFilter, fetchEvents } = useEventsStore();
   const navigation = useNavigation<NavType>();
   const unread = useNotificationsStore((s) => s.unreadCount);
+
+  React.useEffect(() => { fetchEvents(); }, []);
 
   const filtered = categoryFilter ? events.filter((e) => e.category === categoryFilter) : events;
 

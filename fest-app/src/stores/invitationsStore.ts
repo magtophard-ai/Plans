@@ -5,12 +5,14 @@ import { usePlansStore } from './plansStore';
 import { useAuthStore } from './authStore';
 import { useGroupsStore } from './groupsStore';
 import { useNotificationsStore } from './notificationsStore';
+import * as invitationsApi from '../api/invitations';
 
 interface InvitationsState {
   invitations: Invitation[];
   addInvitation: (type: InvitationType, targetId: string, inviterId: string, inviteeId: string) => void;
   accept: (id: string) => void;
   decline: (id: string) => void;
+  fetchInvitations: () => Promise<void>;
 }
 
 export const useInvitationsStore = create<InvitationsState>((set, get) => ({
@@ -67,4 +69,10 @@ export const useInvitationsStore = create<InvitationsState>((set, get) => ({
   decline: (id) => set((s) => ({
     invitations: s.invitations.map((i) => i.id === id ? { ...i, status: 'declined' as InvitationStatus } : i),
   })),
+  fetchInvitations: async () => {
+    try {
+      const res = await invitationsApi.fetchInvitations('pending');
+      set({ invitations: res.invitations });
+    } catch {}
+  },
 }));

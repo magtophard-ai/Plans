@@ -28,7 +28,9 @@ const GROUP_TYPES: NotificationType[] = ['group_invite'];
 const EVENT_TYPES: NotificationType[] = ['event_time_changed', 'event_cancelled'];
 
 export const NotificationsScreen = ({ navigation }: Props) => {
-  const { notifications, markRead, markAllRead, unreadCount } = useNotificationsStore();
+  const { notifications, markRead, markAllRead, unreadCount, fetchNotifications } = useNotificationsStore();
+
+  React.useEffect(() => { fetchNotifications(); }, []);
 
   const handleTap = (item: typeof notifications[0]) => {
     markRead(item.id);
