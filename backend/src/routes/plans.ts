@@ -205,4 +205,333 @@ export async function planRoutes(app: FastifyInstance) {
     await query('DELETE FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [planId, uid]);
     return reply.code(204).send();
   });
+
+  // ===================== SLICE 2 =====================
+
+  // --- Proposals ---
+
+  app.get('/:id/proposals', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { type, status } = request.query as { type?: string; status?: string };
+    const plan = (await query('SELECT id FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    let q = 'SELECT * FROM plan_proposals WHERE plan_id = $1';
+    const params: any[] = [id];
+    let idx = 2;
+    if (type) { q += ` AND type = $${idx}`; params.push(type); idx++; }
+    if (status) { q += ` AND status = $${idx}`; params.push(status); idx++; }
+    q += ' ORDER BY created_at ASC';
+    const proposals = (await query(q, params)).rows;
+    for (const p of proposals) {
+      p.votes = (await query('SELECT * FROM votes WHERE proposal_id = $1', [p.id])).rows;
+    }
+    return { proposals };
+  });
+
+  app.post('/:id/proposals', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id } = request.params as { id: string };
+    const body = request.body as any;
+    const { type, value_text, value_lat, value_lng, value_datetime } = body;
+    if (!type || !value_text) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'type and value_text required' });
+    if (!['place', 'time'].includes(type)) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'type must be place or time' });
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.lifecycle_state !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Cannot propose in non-active plan' });
+    const isParticipant = (await query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [id, userId])).rows[0];
+    if (!isParticipant) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only participants can propose' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const proposal = (await client.query(
+        `INSERT INTO plan_proposals (plan_id, proposer_id, type, value_text, value_lat, value_lng, value_datetime) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [id, userId, type, value_text, value_lat || null, value_lng || null, value_datetime || null]
+      )).rows[0];
+
+      // Update plan status to 'proposed' if currently 'undecided'
+      if (type === 'place' && plan.place_status === 'undecided') {
+        await client.query("UPDATE plans SET place_status = 'proposed', updated_at = now() WHERE id = $1", [id]);
+      }
+      if (type === 'time' && plan.time_status === 'undecided') {
+        await client.query("UPDATE plans SET time_status = 'proposed', updated_at = now() WHERE id = $1", [id]);
+      }
+
+      // Create proposal_card message
+      await client.query(
+        `INSERT INTO messages (context_type, context_id, sender_id, text, type, reference_id) VALUES ('plan', $1, $2, '', 'proposal_card', $3)`,
+        [id, userId, proposal.id]
+      );
+
+      // Notify other participants
+      const proposerName = (await client.query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
+      const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1 AND user_id != $2', [id, userId])).rows;
+      for (const p of participants) {
+        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'proposal_created', $2)", [p.user_id, JSON.stringify({ plan_id: id, proposer_name: proposerName, proposal_type: type })]);
+      }
+
+      await client.query('COMMIT');
+      proposal.votes = [];
+      return reply.code(201).send({ proposal });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+
+  // --- Votes ---
+
+  app.post('/:id/proposals/:proposalId/vote', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id, proposalId } = request.params as { id: string; proposalId: string };
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.lifecycle_state !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Cannot vote in non-active plan' });
+
+    const proposal = (await query('SELECT * FROM plan_proposals WHERE id = $1 AND plan_id = $2', [proposalId, id])).rows[0];
+    if (!proposal) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Proposal not found' });
+    if (proposal.status !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Cannot vote on non-active proposal' });
+
+    const isParticipant = (await query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [id, userId])).rows[0];
+    if (!isParticipant) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only participants can vote' });
+
+    const alreadyVoted = (await query('SELECT 1 FROM votes WHERE proposal_id = $1 AND voter_id = $2', [proposalId, userId])).rows[0];
+    if (alreadyVoted) return reply.code(409).send({ code: 'ALREADY_VOTED', message: 'Already voted on this proposal' });
+
+    // Max 2 votes per type per plan
+    const votesForType = (await query(
+      `SELECT COUNT(*) as c FROM votes v JOIN plan_proposals pp ON v.proposal_id = pp.id WHERE pp.plan_id = $1 AND pp.type = $2 AND v.voter_id = $3 AND pp.status = 'active'`,
+      [id, proposal.type, userId]
+    )).rows[0].c;
+    if (parseInt(votesForType) >= 2) return reply.code(409).send({ code: 'MAX_VOTES_EXCEEDED', message: 'Max 2 votes per proposal type' });
+
+    const vote = (await query(
+      'INSERT INTO votes (proposal_id, voter_id) VALUES ($1, $2) RETURNING *',
+      [proposalId, userId]
+    )).rows[0];
+    return { vote };
+  });
+
+  app.delete('/:id/proposals/:proposalId/vote', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id, proposalId } = request.params as { id: string; proposalId: string };
+
+    const plan = (await query('SELECT id FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+
+    const result = (await query('DELETE FROM votes WHERE proposal_id = $1 AND voter_id = $2', [proposalId, userId])).rowCount;
+    if (!result) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Vote not found' });
+    return reply.code(204).send();
+  });
+
+  // --- Finalize / Unfinalize ---
+
+  app.post('/:id/finalize', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id } = request.params as { id: string };
+    const { place_proposal_id, time_proposal_id } = request.body as { place_proposal_id?: string; time_proposal_id?: string };
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can finalize' });
+    if (plan.lifecycle_state !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only finalize active plans' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const sets: string[] = ["lifecycle_state = 'finalized'", 'updated_at = now()'];
+
+      if (place_proposal_id) {
+        const prop = (await client.query('SELECT * FROM plan_proposals WHERE id = $1 AND plan_id = $2 AND type = $3', [place_proposal_id, id, 'place'])).rows[0];
+        if (!prop) { await client.query('ROLLBACK'); client.release(); return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Place proposal not found' }); }
+        sets.push(`confirmed_place_text = '${prop.value_text.replace(/'/g, "''")}'`);
+        sets.push(prop.value_lat ? `confirmed_place_lat = ${prop.value_lat}` : 'confirmed_place_lat = NULL');
+        sets.push(prop.value_lng ? `confirmed_place_lng = ${prop.value_lng}` : 'confirmed_place_lng = NULL');
+        sets.push("place_status = 'confirmed'");
+        // Mark proposals
+        await client.query("UPDATE plan_proposals SET status = 'finalized' WHERE id = $1", [place_proposal_id]);
+        await client.query("UPDATE plan_proposals SET status = 'superseded' WHERE plan_id = $1 AND type = 'place' AND id != $2 AND status = 'active'", [id, place_proposal_id]);
+      }
+
+      if (time_proposal_id) {
+        const prop = (await client.query('SELECT * FROM plan_proposals WHERE id = $1 AND plan_id = $2 AND type = $3', [time_proposal_id, id, 'time'])).rows[0];
+        if (!prop) { await client.query('ROLLBACK'); client.release(); return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Time proposal not found' }); }
+        sets.push(`confirmed_time = '${prop.value_datetime || prop.value_text.replace(/'/g, "''")}'`);
+        sets.push("time_status = 'confirmed'");
+        await client.query("UPDATE plan_proposals SET status = 'finalized' WHERE id = $1", [time_proposal_id]);
+        await client.query("UPDATE plan_proposals SET status = 'superseded' WHERE plan_id = $1 AND type = 'time' AND id != $2 AND status = 'active'", [id, time_proposal_id]);
+      }
+
+      // If no proposals provided but place/time already confirmed from creation, finalize directly
+      await client.query(`UPDATE plans SET ${sets.join(', ')} WHERE id = $1`, [id]);
+
+      // Notify participants
+      const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;
+      for (const p of participants) {
+        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_finalized', $2)", [p.user_id, JSON.stringify({ plan_id: id, plan_title: plan.title })]);
+      }
+
+      // System message
+      await client.query("INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, 'План подтверждён', 'system')", [id, userId]);
+
+      await client.query('COMMIT');
+      return { plan: await getPlanFull(id) };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post('/:id/unfinalize', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id } = request.params as { id: string };
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can unfinalize' });
+    if (plan.lifecycle_state !== 'finalized') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only unfinalize finalized plans' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Revert finalized/superseded proposals back to active
+      await client.query("UPDATE plan_proposals SET status = 'active' WHERE plan_id = $1 AND (status = 'finalized' OR status = 'superseded')", [id]);
+
+      // Revert place/time status: if confirmed from proposals (not from creation), set to 'proposed'
+      // If confirmed from creation (no proposals existed), keep 'confirmed'
+      const hasPlaceProposals = (await client.query("SELECT 1 FROM plan_proposals WHERE plan_id = $1 AND type = 'place' LIMIT 1", [id])).rows[0];
+      const hasTimeProposals = (await client.query("SELECT 1 FROM plan_proposals WHERE plan_id = $1 AND type = 'time' LIMIT 1", [id])).rows[0];
+
+      const sets: string[] = ["lifecycle_state = 'active'", 'updated_at = now()'];
+      if (hasPlaceProposals) sets.push("place_status = 'proposed'");
+      if (hasTimeProposals) sets.push("time_status = 'proposed'");
+
+      await client.query(`UPDATE plans SET ${sets.join(', ')} WHERE id = $1`, [id]);
+
+      const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;
+      for (const p of participants) {
+        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_unfinalized', $2)", [p.user_id, JSON.stringify({ plan_id: id, plan_title: plan.title })]);
+      }
+
+      await client.query("INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, 'Подтверждение отменено', 'system')", [id, userId]);
+
+      await client.query('COMMIT');
+      return { plan: await getPlanFull(id) };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+
+  // --- Repeat ---
+
+  app.post('/:id/repeat', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id } = request.params as { id: string };
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.lifecycle_state !== 'completed') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only repeat completed plans' });
+    if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can repeat' });
+
+    const oldParticipants = (await query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;
+    const others = oldParticipants.filter((p: any) => p.user_id !== userId).map((p: any) => p.user_id);
+    if (1 + others.length > 15) return reply.code(409).send({ code: 'PLAN_FULL', message: 'Max 15 participants' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const newPlan = (await client.query(
+        `INSERT INTO plans (creator_id, title, activity_type, place_status, time_status, pre_meet_enabled) VALUES ($1, $2, $3, 'undecided', 'undecided', $4) RETURNING *`,
+        [userId, plan.title, plan.activity_type, false]
+      )).rows[0];
+
+      await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [newPlan.id, userId]);
+
+      const inviterName = (await client.query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
+      for (const pid of others) {
+        await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [newPlan.id, pid]);
+        await client.query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [newPlan.id, userId, pid]);
+        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [pid, JSON.stringify({ plan_id: newPlan.id, inviter_name: inviterName })]);
+      }
+
+      await client.query('COMMIT');
+      return reply.code(201).send({ plan: await getPlanFull(newPlan.id) });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+
+  // --- Messages ---
+
+  app.get('/:id/messages', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { before, limit = '50' } = request.query as { before?: string; limit?: string };
+    const lmt = Math.min(parseInt(limit), 100);
+
+    const plan = (await query('SELECT id FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+
+    let q = `SELECT m.*, u.id as u_id, u.phone as u_phone, u.name as u_name, u.username as u_username, u.avatar_url as u_avatar, u.created_at as u_created
+             FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.context_id = $1`;
+    const params: any[] = [id];
+    let idx = 2;
+    if (before) {
+      q += ` AND m.created_at < $${idx}`;
+      params.push(before);
+      idx++;
+    }
+    q += ` ORDER BY m.created_at DESC LIMIT $${idx}`;
+    params.push(lmt);
+
+    const rows = (await query(q, params)).rows;
+    const messages = rows.map((r: any) => ({
+      id: r.id, context_type: r.context_type, context_id: r.context_id,
+      sender_id: r.sender_id, text: r.text, type: r.type,
+      reference_id: r.reference_id, created_at: r.created_at,
+      sender: { id: r.u_id, phone: r.u_phone, name: r.u_name, username: r.u_username, avatar_url: r.u_avatar, created_at: r.u_created },
+    }));
+    return { messages: messages.reverse() };
+  });
+
+  app.post('/:id/messages', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id } = request.params as { id: string };
+    const { text } = request.body as { text: string };
+    if (!text || !text.trim()) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'text required' });
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+
+    const isParticipant = (await query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [id, userId])).rows[0];
+    if (!isParticipant) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only participants can send messages' });
+
+    const msg = (await query(
+      `INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, $3, 'user') RETURNING *`,
+      [id, userId, text.trim()]
+    )).rows[0];
+    const sender = (await query('SELECT * FROM users WHERE id = $1', [userId])).rows[0];
+    return reply.code(201).send({
+      message: {
+        id: msg.id, context_type: msg.context_type, context_id: msg.context_id,
+        sender_id: msg.sender_id, text: msg.text, type: msg.type,
+        reference_id: msg.reference_id, created_at: msg.created_at,
+        sender: { id: sender.id, phone: sender.phone, name: sender.name, username: sender.username, avatar_url: sender.avatar_url, created_at: sender.created_at },
+      },
+    });
+  });
 }

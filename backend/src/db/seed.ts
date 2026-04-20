@@ -74,7 +74,7 @@ async function seed() {
 
   await query(`INSERT INTO plans (id, creator_id, title, activity_type, linked_event_id, place_status, time_status, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, lifecycle_state, pre_meet_enabled, pre_meet_place_text, pre_meet_time) VALUES
     ('${p1}','${me}','Джазовый вечер','bar','${e2}','confirmed','confirmed','Бар «Ночь»',55.765,37.605,'2026-04-22T20:00:00+03:00','active',true,'Метро Тверская','2026-04-22T19:30:00+03:00'),
-    ('${p2}','${me}','Кино в субботу','cinema',NULL,'undecided','confirmed',NULL,NULL,NULL,'2026-04-26T18:00:00+03:00','active',false,NULL,NULL),
+    ('${p2}','${me}','Кино в субботу','cinema',NULL,'proposed','confirmed',NULL,NULL,NULL,'2026-04-26T18:00:00+03:00','active',false,NULL,NULL),
     ('${p3}','${me}','Выставка Кабакова','exhibition','${e1}','confirmed','confirmed','Музей современного искусства',55.7558,37.6173,'2026-04-12T10:00:00+03:00','completed',false,NULL,NULL)
     ON CONFLICT (id) DO NOTHING`);
 
@@ -83,6 +83,23 @@ async function seed() {
     ('${p2}','${me}','going'),('${p2}','${u1}','going'),('${p2}','${u2}','invited'),
     ('${p3}','${me}','going'),('${p3}','${u1}','going'),('${p3}','${u5}','going')
     ON CONFLICT (plan_id, user_id) DO NOTHING`);
+
+  // Proposals for p2 (undecided place, confirmed time from creation)
+  const prop1 = u('prop1'), prop2 = u('prop2');
+  await query(`INSERT INTO plan_proposals (id, plan_id, proposer_id, type, value_text, status) VALUES
+    ('${prop1}','${p2}','${u1}','place','Иллюзион','active'),
+    ('${prop2}','${p2}','${me}','place','КиноМакс','active')
+    ON CONFLICT (id) DO NOTHING`);
+
+  await query(`INSERT INTO votes (proposal_id, voter_id) VALUES ('${prop1}','${u2}'), ('${prop1}','${me}') ON CONFLICT (proposal_id, voter_id) DO NOTHING`);
+
+  // Messages for p1
+  const msg1 = u('msg1'), msg2 = u('msg2'), msg3 = u('msg3');
+  await query(`INSERT INTO messages (id, context_type, context_id, sender_id, text, type, reference_id) VALUES
+    ('${msg1}','plan','${p1}','${me}','Встречаемся у метро в 19:30','user',NULL),
+    ('${msg2}','plan','${p1}','${u2}','Ок, буду!','user',NULL),
+    ('${msg3}','plan','${p1}','${u3}','Я наверное опоздаю чуть-чуть','user',NULL)
+    ON CONFLICT (id) DO NOTHING`);
 
   await query(`INSERT INTO groups (id, creator_id, name) VALUES ('${g1}','${me}','Кино-клуб'),('${g2}','${me}','Барная компания') ON CONFLICT (id) DO NOTHING`);
 
