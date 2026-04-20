@@ -331,6 +331,21 @@ async function main() {
   const validPatch: any = await api('/users/me', tokenA, 'PATCH', { name: 'Test User A' });
   assert(!!validPatch.user, 'Valid PATCH /me returns user');
 
+  const validUsername: any = await api('/users/me', tokenA, 'PATCH', { username: 'dyk_an' });
+  assert(validUsername.user?.username === 'dyk_an', 'Valid multi-char username accepted');
+
+  const dupUsername: any = await api('/users/me', tokenB, 'PATCH', { username: 'dyk_an' });
+  assert(dupUsername.code === 'USERNAME_TAKEN', 'Duplicate username → 409 USERNAME_TAKEN');
+
+  // --- SECTION 15: Non-existent event interest/save ---
+  console.log('\n15. Non-existent event interest/save');
+  const fakeEventId = '00000000-0000-0000-0000-000000000000';
+  const interest404: any = await api(`/events/${fakeEventId}/interest`, tokenA, 'POST');
+  assert(interest404.code === 'NOT_FOUND', 'Interest in nonexistent event → 404 NOT_FOUND');
+
+  const save404: any = await api(`/events/${fakeEventId}/save`, tokenA, 'POST');
+  assert(save404.code === 'NOT_FOUND', 'Save nonexistent event → 404 NOT_FOUND');
+
   // Cleanup
   wsA.close();
   wsB2.close();

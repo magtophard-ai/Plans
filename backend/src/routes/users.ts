@@ -13,8 +13,14 @@ export async function userRoutes(app: FastifyInstance) {
     const { name, username, avatar_url } = request.body as any;
     if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.length > 100))
       return reply.code(400).send({ code: 'INVALID_INPUT', message: 'name must be 1-100 chars' });
-    if (username !== undefined && (typeof username !== 'string' || !/^[a-zA-Z0-9_]{1,50}$/.test(username)))
-      return reply.code(400).send({ code: 'INVALID_INPUT', message: 'username must be 1-50 alphanumeric/underscore chars' });
+    if (username !== undefined) {
+      if (typeof username !== 'string' || !/^[a-zA-Z0-9_]{1,50}$/.test(username))
+        return reply.code(400).send({ code: 'INVALID_INPUT', message: 'username must be 1-50 alphanumeric/underscore chars' });
+      if (username !== (await query('SELECT username FROM users WHERE id = $1', [userId])).rows[0]?.username) {
+        const taken = (await query('SELECT 1 FROM users WHERE username = $1 AND id != $2', [username, userId])).rows[0];
+        if (taken) return reply.code(409).send({ code: 'USERNAME_TAKEN', message: 'Username already taken' });
+      }
+    }
     if (avatar_url !== undefined && avatar_url !== null && (typeof avatar_url !== 'string' || avatar_url.length > 500))
       return reply.code(400).send({ code: 'INVALID_INPUT', message: 'avatar_url must be null or string <= 500 chars' });
     const sets: string[] = [];

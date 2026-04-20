@@ -87,9 +87,11 @@ export async function eventRoutes(app: FastifyInstance) {
     }};
   });
 
-  app.post('/:id/interest', { preHandler: [(app as any).authenticate] }, async (request) => {
+  app.post('/:id/interest', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { id } = request.params as { id: string };
+    const ev = (await query('SELECT 1 FROM events WHERE id = $1', [id])).rows[0];
+    if (!ev) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Event not found' });
     await query(
       `INSERT INTO event_interests (user_id, event_id) VALUES ($1, $2) ON CONFLICT (user_id, event_id) DO NOTHING`,
       [userId, id]
@@ -104,9 +106,11 @@ export async function eventRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  app.post('/:id/save', { preHandler: [(app as any).authenticate] }, async (request) => {
+  app.post('/:id/save', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { id } = request.params as { id: string };
+    const ev = (await query('SELECT 1 FROM events WHERE id = $1', [id])).rows[0];
+    if (!ev) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Event not found' });
     await query(
       `INSERT INTO saved_events (user_id, event_id) VALUES ($1, $2) ON CONFLICT (user_id, event_id) DO NOTHING`,
       [userId, id]
