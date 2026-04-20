@@ -33,7 +33,7 @@ function connectWs(token: string): Promise<WebSocket> {
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'auth', token }));
     });
-    ws.on('message', (raw) => {
+    ws.on('message', (raw: Buffer) => {
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'auth_ok') resolve(ws);
       if (msg.type === 'auth_error') { reject(new Error('auth_error')); ws.close(); }

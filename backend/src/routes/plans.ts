@@ -395,6 +395,8 @@ export async function planRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { place_proposal_id, time_proposal_id } = request.body as { place_proposal_id?: string; time_proposal_id?: string };
 
+    if (!place_proposal_id && !time_proposal_id) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'At least one proposal id (place or time) required' });
+
     const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
     if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
     if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can finalize' });
