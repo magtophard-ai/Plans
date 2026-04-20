@@ -3,6 +3,8 @@ import type { User } from '../types';
 import { mockUsers } from '../mocks';
 import * as authApi from '../api/auth';
 import { setToken } from '../api/client';
+import { startWs, stopWs } from '../api/ws';
+import { initWsHandler } from '../api/wsHandler';
 
 interface AuthState {
   user: User | null;
@@ -45,12 +47,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         localStorage.setItem(REFRESH_KEY, res.refreshToken);
       }
       set({ user: res.user, isAuthenticated: true, otpSent: false, loading: false });
+      initWsHandler();
+      startWs();
     } catch {
       set({ user: mockUsers[5], isAuthenticated: true, otpSent: false, loading: false });
     }
   },
 
   logout: () => {
+    stopWs();
     setToken(null);
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(TOKEN_KEY);
@@ -68,6 +73,8 @@ const tryRestore = async () => {
   try {
     const user = await authApi.fetchMe();
     useAuthStore.setState({ user, isAuthenticated: true });
+    initWsHandler();
+    startWs();
   } catch {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);

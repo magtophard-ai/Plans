@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Plan, PlanProposal, PlanParticipant, ParticipantStatus, PlanLifecycle, Message } from '../types';
+import type { Plan, PlanProposal, PlanParticipant, ParticipantStatus, PlanLifecycle, Message, Vote } from '../types';
 import * as plansApi from '../api/plans';
 
 interface PlansState {
@@ -23,6 +23,9 @@ interface PlansState {
   apiSendMessage: (planId: string, text: string) => Promise<void>;
   apiFetchProposals: (planId: string) => Promise<void>;
   apiInviteParticipant: (planId: string, inviteeId: string) => Promise<void>;
+  pushMessage: (planId: string, msg: Message) => void;
+  pushProposal: (planId: string, proposal: PlanProposal) => void;
+  pushVote: (planId: string, proposalId: string, voterId: string, action: 'added' | 'removed', voteId?: string, createdAt?: string) => void;
 }
 
 const upsertPlan = (plans: Plan[], updated: Plan): Plan[] =>
@@ -150,6 +153,7 @@ export const usePlansStore = create<PlansState>((set, get) => ({
             text: '',
             type: 'proposal_card' as const,
             reference_id: proposal.id,
+            client_message_id: null,
             created_at: proposal.created_at,
             sender: undefined,
           },
@@ -301,16 +305,56 @@ export const usePlansStore = create<PlansState>((set, get) => ({
   },
 
   apiSendMessage: async (planId, text) => {
+    const clientMessageId = `cmid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const optimisticMsg: Message = {
+      id: `optimistic-${clientMessageId}`,
+      context_type: 'plan',
+      context_id: planId,
+      sender_id: '__pending__',
+      text,
+      type: 'user',
+      reference_id: null,
+      client_message_id: clientMessageId,
+      created_at: new Date().toISOString(),
+    };
+    set((s) => ({
+      messages: {
+        ...s.messages,
+        [planId]: [...(s.messages[planId] || []), optimisticMsg],
+      },
+    }));
     try {
-      const res = await plansApi.sendMessage(planId, text);
+      const res = await plansApi.sendMessage(planId, text, clientMessageId);
       const msg = res.message;
+      set((s) => {
+        const existing = s.messages[planId] || [];
+        const idx = existing.findIndex(
+          (m) => m.client_message_id === clientMessageId || m.id === msg.id
+        );
+        if (idx >= 0) {
+          const updated = [...existing];
+          updated[idx] = msg;
+          return { messages: { ...s.messages, [planId]: updated } };
+        }
+        return {
+          messages: {
+            ...s.messages,
+            [planId]: [...existing, msg].sort((a, b) =>
+              a.created_at.localeCompare(b.created_at)
+            ),
+          },
+        };
+      });
+    } catch {
       set((s) => ({
         messages: {
           ...s.messages,
-          [planId]: [...(s.messages[planId] || []), msg],
+          [planId]: (s.messages[planId] || []).filter(
+            (m) => m.client_message_id !== clientMessageId
+          ),
         },
       }));
-    } catch {}
+    }
   },
 
   apiFetchProposals: async (planId) => {
@@ -330,5 +374,89 @@ export const usePlansStore = create<PlansState>((set, get) => ({
       const plan = await plansApi.fetchPlan(planId);
       set((s) => ({ plans: upsertPlan(s.plans, plan) }));
     } catch {}
+  },
+
+  pushMessage: (planId, msg) => {
+    set((s) => {
+      const existing = s.messages[planId] || [];
+      if (msg.client_message_id) {
+        const idx = existing.findIndex(
+          (m) => m.client_message_id === msg.client_message_id
+        );
+        if (idx >= 0) {
+          const updated = [...existing];
+          updated[idx] = msg;
+          return { messages: { ...s.messages, [planId]: updated } };
+        }
+      }
+      if (existing.some((m) => m.id === msg.id)) return s;
+      return {
+        messages: {
+          ...s.messages,
+          [planId]: [...existing, msg].sort((a, b) =>
+            a.created_at.localeCompare(b.created_at)
+          ),
+        },
+      };
+    });
+  },
+
+  pushProposal: (planId, proposal) => {
+    set((s) => ({
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              proposals: [...(p.proposals || []), proposal],
+              place_status:
+                proposal.type === 'place' && p.place_status === 'undecided'
+                  ? 'proposed'
+                  : p.place_status,
+              time_status:
+                proposal.type === 'time' && p.time_status === 'undecided'
+                  ? 'proposed'
+                  : p.time_status,
+            }
+      ),
+    }));
+  },
+
+  pushVote: (planId, proposalId, voterId, action, voteId, createdAt) => {
+    set((s) => ({
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              proposals: p.proposals?.map((pr) =>
+                pr.id !== proposalId
+                  ? pr
+                  : action === 'added'
+                    ? {
+                        ...pr,
+                        votes: [
+                          ...(pr.votes || []).filter(
+                            (v) => v.voter_id !== '__optimistic__' && v.voter_id !== voterId
+                          ),
+                          {
+                            id: voteId || `ws-vote-${Date.now()}`,
+                            proposal_id: proposalId,
+                            voter_id: voterId,
+                            created_at: createdAt || new Date().toISOString(),
+                          },
+                        ],
+                      }
+                    : {
+                        ...pr,
+                        votes: (pr.votes || []).filter(
+                          (v) =>
+                            v.voter_id !== voterId || v.voter_id === '__optimistic__'
+                        ),
+                      }
+              ),
+            }
+      ),
+    }));
   },
 }));

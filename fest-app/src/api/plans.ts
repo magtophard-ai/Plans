@@ -84,8 +84,8 @@ export const fetchMessages = (planId: string, before?: string, limit?: number) =
   return api<{ messages: Message[] }>(`/plans/${planId}/messages${q ? '?' + q : ''}`).then((r) => camelize<{ messages: Message[] }>(r));
 };
 
-export const sendMessage = (planId: string, text: string) =>
-  api<{ message: Message }>(`/plans/${planId}/messages`, { method: 'POST', body: { text } }).then((r) => camelize<{ message: Message }>(r));
+export const sendMessage = (planId: string, text: string, clientMessageId?: string) =>
+  api<{ message: Message }>(`/plans/${planId}/messages`, { method: 'POST', body: { text, client_message_id: clientMessageId || undefined } }).then((r) => camelize<{ message: Message }>(r));
 
 export const inviteParticipant = (planId: string, inviteeId: string) =>
   api(`/plans/${planId}/participants`, { method: 'POST', body: { user_id: inviteeId } });

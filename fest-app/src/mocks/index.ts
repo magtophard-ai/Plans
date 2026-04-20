@@ -111,20 +111,20 @@ export const mockPlans: Plan[] = [
 
 export const mockMessages: Record<string, Message[]> = {
   p1: [
-    { id: 'm1', context_type: 'plan', context_id: 'p1', sender_id: 'me', text: 'Ребята, идём в 20:00?', type: 'user', reference_id: null, created_at: '2026-04-19T15:10:00', sender: mockUsers[5] },
-    { id: 'm2', context_type: 'plan', context_id: 'p1', sender_id: 'u2', text: 'Да, отлично! Встретимся у метро?', type: 'user', reference_id: null, created_at: '2026-04-19T15:12:00', sender: mockUsers[1] },
-    { id: 'm3', context_type: 'plan', context_id: 'p1', sender_id: 'me', text: 'Добавил встречу до: Метро Тверская в 19:30', type: 'user', reference_id: null, created_at: '2026-04-19T15:30:00', sender: mockUsers[5] },
+    { id: 'm1', context_type: 'plan', context_id: 'p1', sender_id: 'me', text: 'Ребята, идём в 20:00?', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-19T15:10:00', sender: mockUsers[5] },
+    { id: 'm2', context_type: 'plan', context_id: 'p1', sender_id: 'u2', text: 'Да, отлично! Встретимся у метро?', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-19T15:12:00', sender: mockUsers[1] },
+    { id: 'm3', context_type: 'plan', context_id: 'p1', sender_id: 'me', text: 'Добавил встречу до: Метро Тверская в 19:30', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-19T15:30:00', sender: mockUsers[5] },
   ],
   p2: [
-    { id: 'm4', context_type: 'plan', context_id: 'p2', sender_id: 'me', text: 'Кино в субботу вечером, место решим!', type: 'user', reference_id: null, created_at: '2026-04-18T10:00:00', sender: mockUsers[5] },
-    { id: 'm5', context_type: 'plan', context_id: 'p2', sender_id: 'u1', text: 'Давайте в Иллюзион?', type: 'user', reference_id: null, created_at: '2026-04-19T08:00:00', sender: mockUsers[0] },
-    { id: 'm6', context_type: 'plan', context_id: 'p2', sender_id: 'u1', text: '', type: 'proposal_card', reference_id: 'pr1', created_at: '2026-04-19T08:00:00', sender: mockUsers[0] },
-    { id: 'm7', context_type: 'plan', context_id: 'p2', sender_id: 'u2', text: 'Или Формулу кино, там удобнее', type: 'user', reference_id: null, created_at: '2026-04-19T09:00:00', sender: mockUsers[1] },
-    { id: 'm8', context_type: 'plan', context_id: 'p2', sender_id: 'u2', text: '', type: 'proposal_card', reference_id: 'pr2', created_at: '2026-04-19T09:00:00', sender: mockUsers[1] },
+    { id: 'm4', context_type: 'plan', context_id: 'p2', sender_id: 'me', text: 'Кино в субботу вечером, место решим!', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-18T10:00:00', sender: mockUsers[5] },
+    { id: 'm5', context_type: 'plan', context_id: 'p2', sender_id: 'u1', text: 'Давайте в Иллюзион?', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-19T08:00:00', sender: mockUsers[0] },
+    { id: 'm6', context_type: 'plan', context_id: 'p2', sender_id: 'u1', text: '', type: 'proposal_card', reference_id: 'pr1', client_message_id: null, created_at: '2026-04-19T08:00:00', sender: mockUsers[0] },
+    { id: 'm7', context_type: 'plan', context_id: 'p2', sender_id: 'u2', text: 'Или Формулу кино, там удобнее', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-19T09:00:00', sender: mockUsers[1] },
+    { id: 'm8', context_type: 'plan', context_id: 'p2', sender_id: 'u2', text: '', type: 'proposal_card', reference_id: 'pr2', client_message_id: null, created_at: '2026-04-19T09:00:00', sender: mockUsers[1] },
   ],
   p3: [
-    { id: 'm9', context_type: 'plan', context_id: 'p3', sender_id: 'me', text: 'Идём на Кабакова в субботу?', type: 'user', reference_id: null, created_at: '2026-04-10T09:00:00', sender: mockUsers[5] },
-    { id: 'm10', context_type: 'plan', context_id: 'p3', sender_id: 'u1', text: 'Да, давно хотела!', type: 'user', reference_id: null, created_at: '2026-04-10T09:05:00', sender: mockUsers[0] },
+    { id: 'm9', context_type: 'plan', context_id: 'p3', sender_id: 'me', text: 'Идём на Кабакова в субботу?', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-10T09:00:00', sender: mockUsers[5] },
+    { id: 'm10', context_type: 'plan', context_id: 'p3', sender_id: 'u1', text: 'Да, давно хотела!', type: 'user', reference_id: null, client_message_id: null, created_at: '2026-04-10T09:05:00', sender: mockUsers[0] },
   ],
 };
 

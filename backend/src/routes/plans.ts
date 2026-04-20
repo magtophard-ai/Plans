@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { pool, query } from '../db/pool.js';
+import { insertNotification } from '../db/notifications.js';
 
 async function getPlanFull(planId: string) {
   const plan = (await query('SELECT * FROM plans WHERE id = $1', [planId])).rows[0];
@@ -102,7 +103,7 @@ export async function planRoutes(app: FastifyInstance) {
       for (const pid of others) {
         await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [plan.id, pid]);
         await client.query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [plan.id, userId, pid]);
-        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [pid, JSON.stringify({ plan_id: plan.id, inviter_name: inviterName })]);
+        await insertNotification(pid, 'plan_invite', { plan_id: plan.id, inviter_name: inviterName }, (sql, p) => client.query(sql, p));
       }
 
       await client.query('COMMIT');
@@ -196,7 +197,7 @@ export async function planRoutes(app: FastifyInstance) {
     const inviterName = (await query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
     await query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [planId, inviteeId]);
     await query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [planId, userId, inviteeId]);
-    await query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [inviteeId, JSON.stringify({ plan_id: planId, inviter_name: inviterName })]);
+    await insertNotification(inviteeId, 'plan_invite', { plan_id: planId, inviter_name: inviterName });
 
     const r = (await query(
       `SELECT pp.*, u.id as u_id, u.phone as u_phone, u.name as u_name, u.username as u_username, u.avatar_url as u_avatar, u.created_at as u_created
@@ -301,11 +302,19 @@ export async function planRoutes(app: FastifyInstance) {
       const proposerName = (await client.query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
       const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1 AND user_id != $2', [id, userId])).rows;
       for (const p of participants) {
-        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'proposal_created', $2)", [p.user_id, JSON.stringify({ plan_id: id, proposer_name: proposerName, proposal_type: type })]);
+        await insertNotification(p.user_id, 'proposal_created', { plan_id: id, proposer_name: proposerName, proposal_type: type }, (sql, p2) => client.query(sql, p2));
       }
 
       await client.query('COMMIT');
       proposal.votes = [];
+      (app as any).wsEmit(`plan:${id}`, 'plan.proposal.created', {
+        id: proposal.id, plan_id: proposal.plan_id, proposer_id: proposal.proposer_id,
+        type: proposal.type, value_text: proposal.value_text,
+        value_lat: proposal.value_lat, value_lng: proposal.value_lng,
+        value_datetime: proposal.value_datetime instanceof Date ? proposal.value_datetime.toISOString() : proposal.value_datetime,
+        status: proposal.status, created_at: proposal.created_at instanceof Date ? proposal.created_at.toISOString() : proposal.created_at,
+        votes: [],
+      });
       return reply.code(201).send({ proposal });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -346,6 +355,11 @@ export async function planRoutes(app: FastifyInstance) {
       'INSERT INTO votes (proposal_id, voter_id) VALUES ($1, $2) RETURNING *',
       [proposalId, userId]
     )).rows[0];
+    (app as any).wsEmit(`plan:${id}`, 'plan.vote.changed', {
+      proposal_id: proposalId, plan_id: id, voter_id: userId,
+      action: 'added', vote_id: vote.id,
+      created_at: vote.created_at instanceof Date ? vote.created_at.toISOString() : vote.created_at,
+    });
     return { vote };
   });
 
@@ -358,6 +372,9 @@ export async function planRoutes(app: FastifyInstance) {
 
     const result = (await query('DELETE FROM votes WHERE proposal_id = $1 AND voter_id = $2', [proposalId, userId])).rowCount;
     if (!result) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Vote not found' });
+    (app as any).wsEmit(`plan:${id}`, 'plan.vote.changed', {
+      proposal_id: proposalId, plan_id: id, voter_id: userId, action: 'removed',
+    });
     return reply.code(204).send();
   });
 
@@ -418,14 +435,20 @@ export async function planRoutes(app: FastifyInstance) {
       // Notify participants
       const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;
       for (const p of participants) {
-        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_finalized', $2)", [p.user_id, JSON.stringify({ plan_id: id, plan_title: plan.title })]);
+        await insertNotification(p.user_id, 'plan_finalized', { plan_id: id, plan_title: plan.title }, (sql, p2) => client.query(sql, p2));
       }
 
       // System message
       await client.query("INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, 'План подтверждён', 'system')", [id, userId]);
 
       await client.query('COMMIT');
-      return { plan: await getPlanFull(id) };
+      const fullPlan = await getPlanFull(id);
+      (app as any).wsEmit(`plan:${id}`, 'plan.finalized', {
+        plan_id: id,
+        place_proposal_id: place_proposal_id || null,
+        time_proposal_id: time_proposal_id || null,
+      });
+      return { plan: fullPlan };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -463,12 +486,13 @@ export async function planRoutes(app: FastifyInstance) {
 
       const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;
       for (const p of participants) {
-        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_unfinalized', $2)", [p.user_id, JSON.stringify({ plan_id: id, plan_title: plan.title })]);
+        await insertNotification(p.user_id, 'plan_unfinalized', { plan_id: id, plan_title: plan.title }, (sql, p2) => client.query(sql, p2));
       }
 
       await client.query("INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, 'Подтверждение отменено', 'system')", [id, userId]);
 
       await client.query('COMMIT');
+      (app as any).wsEmit(`plan:${id}`, 'plan.unfinalized', { plan_id: id });
       return { plan: await getPlanFull(id) };
     } catch (err) {
       await client.query('ROLLBACK');
@@ -508,7 +532,7 @@ export async function planRoutes(app: FastifyInstance) {
       for (const pid of others) {
         await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [newPlan.id, pid]);
         await client.query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [newPlan.id, userId, pid]);
-        await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [pid, JSON.stringify({ plan_id: newPlan.id, inviter_name: inviterName })]);
+        await insertNotification(pid, 'plan_invite', { plan_id: newPlan.id, inviter_name: inviterName }, (sql, p) => client.query(sql, p));
       }
 
       await client.query('COMMIT');
@@ -547,7 +571,8 @@ export async function planRoutes(app: FastifyInstance) {
     const messages = rows.map((r: any) => ({
       id: r.id, context_type: r.context_type, context_id: r.context_id,
       sender_id: r.sender_id, text: r.text, type: r.type,
-      reference_id: r.reference_id, created_at: r.created_at,
+      reference_id: r.reference_id, client_message_id: r.client_message_id || null,
+      created_at: r.created_at,
       sender: { id: r.u_id, phone: r.u_phone, name: r.u_name, username: r.u_username, avatar_url: r.u_avatar, created_at: r.u_created },
     }));
     return { messages: messages.reverse() };
@@ -556,7 +581,7 @@ export async function planRoutes(app: FastifyInstance) {
   app.post('/:id/messages', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { id } = request.params as { id: string };
-    const { text } = request.body as { text: string };
+    const { text, client_message_id } = request.body as { text: string; client_message_id?: string };
     if (!text || !text.trim()) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'text required' });
 
     const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
@@ -566,17 +591,20 @@ export async function planRoutes(app: FastifyInstance) {
     if (!isParticipant) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only participants can send messages' });
 
     const msg = (await query(
-      `INSERT INTO messages (context_type, context_id, sender_id, text, type) VALUES ('plan', $1, $2, $3, 'user') RETURNING *`,
-      [id, userId, text.trim()]
+      `INSERT INTO messages (context_type, context_id, sender_id, text, type, client_message_id) VALUES ('plan', $1, $2, $3, 'user', $4) RETURNING *`,
+      [id, userId, text.trim(), client_message_id || null]
     )).rows[0];
     const sender = (await query('SELECT * FROM users WHERE id = $1', [userId])).rows[0];
-    return reply.code(201).send({
-      message: {
-        id: msg.id, context_type: msg.context_type, context_id: msg.context_id,
-        sender_id: msg.sender_id, text: msg.text, type: msg.type,
-        reference_id: msg.reference_id, created_at: msg.created_at,
-        sender: { id: sender.id, phone: sender.phone, name: sender.name, username: sender.username, avatar_url: sender.avatar_url, created_at: sender.created_at },
-      },
-    });
+    const messageResponse = {
+      id: msg.id, context_type: msg.context_type, context_id: msg.context_id,
+      sender_id: msg.sender_id, text: msg.text, type: msg.type,
+      reference_id: msg.reference_id, client_message_id: msg.client_message_id || null,
+      created_at: msg.created_at instanceof Date ? msg.created_at.toISOString() : msg.created_at,
+      sender: { id: sender.id, phone: sender.phone, name: sender.name, username: sender.username, avatar_url: sender.avatar_url, created_at: sender.created_at instanceof Date ? sender.created_at.toISOString() : sender.created_at },
+    };
+
+    (app as any).wsEmit(`plan:${id}`, 'plan.message.created', messageResponse);
+
+    return reply.code(201).send({ message: messageResponse });
   });
 }

@@ -12,6 +12,8 @@ import { invitationRoutes } from './routes/invitations.js';
 import { groupRoutes } from './routes/groups.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { searchRoutes } from './routes/search.js';
+import { wsRoutes, emit as wsEmit } from './routes/ws.js';
+import { setEmitter } from './db/notifications.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -29,6 +31,8 @@ app.decorate('authenticate', async (request: any) => {
 });
 
 app.decorate('pg', pool);
+app.decorate('wsEmit', wsEmit);
+setEmitter(wsEmit);
 
 await app.register(authRoutes, { prefix: '/api/auth' });
 await app.register(userRoutes, { prefix: '/api/users' });
@@ -39,6 +43,7 @@ await app.register(invitationRoutes, { prefix: '/api/invitations' });
 await app.register(groupRoutes, { prefix: '/api/groups' });
 await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(searchRoutes, { prefix: '/api/search' });
+await app.register(wsRoutes, { prefix: '/api' });
 
 app.get('/api/health', async () => ({ status: 'ok' }));
 

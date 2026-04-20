@@ -8,6 +8,7 @@ interface NotificationsState {
   markRead: (id: string) => void;
   markAllRead: () => void;
   fetchNotifications: () => Promise<void>;
+  pushNotification: (n: Notification) => void;
 }
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
@@ -35,5 +36,12 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
       const res = await notificationsApi.fetchNotifications(50);
       set({ notifications: res.notifications, unreadCount: res.unreadCount });
     } catch {}
+  },
+
+  pushNotification: (n) => {
+    set((s) => ({
+      notifications: [n, ...s.notifications],
+      unreadCount: s.unreadCount + 1,
+    }));
   },
 }));

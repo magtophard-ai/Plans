@@ -213,6 +213,7 @@ export interface Message {
   text: string;
   type: MessageType;
   reference_id: string | null;
+  client_message_id: string | null;
   created_at: string;
   sender?: User;
 }

@@ -6,6 +6,7 @@ import { usePlansStore } from '../stores/plansStore';
 import { useAuthStore } from '../stores/authStore';
 import { formatDateShort } from '../utils/dates';
 import { ACTIVITY_LABELS, type ActivityType, type Plan, type PlanProposal, type PlanParticipant, type Message, type ParticipantStatus } from '../types';
+import { subscribe, unsubscribe } from '../api/ws';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { PlansStackParamList } from '../navigation/types';
@@ -28,6 +29,11 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
 
   React.useEffect(() => { fetchPlan(planId); }, [planId]);
   React.useEffect(() => { if (tab === 'chat') apiFetchMessages(planId); }, [tab, planId]);
+  React.useEffect(() => {
+    const ch = `plan:${planId}`;
+    subscribe(ch);
+    return () => unsubscribe(ch);
+  }, [planId]);
 
   const plan = plans.find((p) => p.id === planId);
   if (!plan || !user) return <ScreenContainer><View style={s.inner}><EmptyState text="План не найден" /></View></ScreenContainer>;

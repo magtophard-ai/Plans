@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { pool, query } from '../db/pool.js';
+import { insertNotification } from '../db/notifications.js';
 
 export async function groupRoutes(app: FastifyInstance) {
   app.get('/', { preHandler: [(app as any).authenticate] }, async (request) => {
@@ -31,7 +32,7 @@ export async function groupRoutes(app: FastifyInstance) {
       for (const mid of (member_ids || [])) {
         if (mid !== userId) {
           await client.query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('group', $1, $2, $3, 'pending')", [group.id, userId, mid]);
-          await client.query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'group_invite', $2)", [mid, JSON.stringify({ group_id: group.id, inviter_name: inviterName })]);
+          await insertNotification(mid, 'group_invite', { group_id: group.id, inviter_name: inviterName }, (sql, p) => client.query(sql, p));
         }
       }
 
@@ -82,7 +83,7 @@ export async function groupRoutes(app: FastifyInstance) {
     // Only create invitation — member is added when invitation is accepted
     await query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('group', $1, $2, $3, 'pending')", [id, userId, user_id]);
     const inviterName = (await query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
-    await query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'group_invite', $2)", [user_id, JSON.stringify({ group_id: id, inviter_name: inviterName })]);
+    await insertNotification(user_id, 'group_invite', { group_id: id, inviter_name: inviterName });
 
     return reply.code(201).send({ invitation_id: null, message: 'Invitation sent' });
   });
