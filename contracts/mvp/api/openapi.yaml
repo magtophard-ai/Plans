@@ -5,7 +5,7 @@ info:
   description: Contract-first MVP backend for the Планы? / Fest&Rest app.
 
 servers:
-  - url: http://localhost:3000/api
+  - url: http://localhost:3001/api
     description: Local development
 
 security: []
@@ -515,6 +515,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ParticipantListResponse"
+    post:
+      tags: [plans]
+      operationId: inviteParticipant
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteParticipantRequest"
+      responses:
+        "200":
+          description: Participant invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Already participant or plan full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /plans/{id}/participants/{uid}:
     patch:
@@ -1544,6 +1572,14 @@ components:
       properties:
         status:
           $ref: "#/components/schemas/ParticipantStatus"
+
+    InviteParticipantRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
 
     CreateProposalRequest:
       type: object

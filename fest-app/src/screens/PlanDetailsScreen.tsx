@@ -4,10 +4,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { theme } from '../theme';
 import { usePlansStore } from '../stores/plansStore';
 import { useAuthStore } from '../stores/authStore';
-import { useInvitationsStore } from '../stores/invitationsStore';
 import { formatDateShort } from '../utils/dates';
 import { ACTIVITY_LABELS, type ActivityType, type Plan, type PlanProposal, type PlanParticipant, type Message, type ParticipantStatus } from '../types';
-import { mockUsers } from '../mocks';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { PlansStackParamList } from '../navigation/types';
@@ -22,14 +20,14 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const { planId } = route.params;
   const plans = usePlansStore((s) => s.plans);
   const messages = usePlansStore((s) => s.messages);
-  const { updateParticipantStatus, addProposal, vote, unvote, finalizePlan, unfinalizePlan, cancelPlan, completePlan, addMessage, addPlan, inviteParticipant, removeParticipant, leavePlan, fetchPlan, apiUpdateParticipantStatus, apiRemoveParticipant, apiCancelPlan, apiCompletePlan } = usePlansStore();
-  const addInvitation = useInvitationsStore((s) => s.addInvitation);
+  const { fetchPlan, apiUpdateParticipantStatus, apiRemoveParticipant, apiCancelPlan, apiCompletePlan, apiFinalize, apiUnfinalize, apiCreateProposal, apiVote, apiUnvote, apiRepeat, apiFetchMessages, apiSendMessage, apiInviteParticipant } = usePlansStore();
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'details' | 'chat'>('details');
   const [chatInput, setChatInput] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
 
   React.useEffect(() => { fetchPlan(planId); }, [planId]);
+  React.useEffect(() => { if (tab === 'chat') apiFetchMessages(planId); }, [tab, planId]);
 
   const plan = plans.find((p) => p.id === planId);
   if (!plan || !user) return <ScreenContainer><View style={s.inner}><EmptyState text="План не найден" /></View></ScreenContainer>;
@@ -40,17 +38,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
 
   const handleSend = () => {
     if (!chatInput.trim()) return;
-    addMessage(planId, {
-      id: `msg-${Date.now()}`,
-      context_type: 'plan',
-      context_id: planId,
-      sender_id: user.id,
-      text: chatInput.trim(),
-      type: 'user',
-      reference_id: null,
-      created_at: new Date().toISOString(),
-      sender: user,
-    });
+    apiSendMessage(planId, chatInput.trim());
     setChatInput('');
   };
 
@@ -59,8 +47,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   };
 
   const handleInviteFriend = (friendId: string) => {
-    inviteParticipant(planId, friendId);
-    addInvitation('plan', planId, user.id, friendId);
+    apiInviteParticipant(planId, friendId);
     setShowInviteModal(false);
   };
 
@@ -78,52 +65,15 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
     ]);
   };
 
-  const handleRepeat = () => {
-    const newId = `plan-${Date.now()}`;
-    const participants: PlanParticipant[] = (plan.participants ?? [])
-      .filter((p) => p.user_id !== user.id)
-      .map((p) => ({
-        id: `pp-${Date.now()}-${p.user_id}`,
-        plan_id: '',
-        user_id: p.user_id,
-        status: 'invited' as const,
-        joined_at: new Date().toISOString(),
-        user: p.user,
-      }));
-
-    const newPlan: Plan = {
-      id: newId,
-      creator_id: user.id,
-      title: plan.title,
-      activity_type: plan.activity_type,
-      linked_event_id: null,
-      place_status: 'undecided',
-      time_status: 'undecided',
-      confirmed_place_text: null,
-      confirmed_place_lat: null,
-      confirmed_place_lng: null,
-      confirmed_time: null,
-      lifecycle_state: 'active',
-      pre_meet_enabled: false,
-      pre_meet_place_text: null,
-      pre_meet_time: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      participants: [
-        { id: `pp-me-${Date.now()}`, plan_id: '', user_id: user.id, status: 'going' as const, joined_at: new Date().toISOString(), user },
-        ...participants,
-      ],
-      proposals: [],
-    };
-
-    addPlan(newPlan);
-    participants.forEach((p) => addInvitation('plan', newId, user.id, p.user_id));
-    navigation.replace('PlanDetails', { planId: newId });
+  const handleRepeat = async () => {
+    const newId = await apiRepeat(planId);
+    if (newId) navigation.replace('PlanDetails', { planId: newId });
   };
 
-  const nonParticipants = mockUsers.filter(
-    (u) => u.id !== user.id && !(plan.participants || []).some((p) => p.user_id === u.id)
-  );
+  const participantUserIds = new Set((plan.participants || []).map((p) => p.user_id));
+  const nonParticipants = (plan.participants || [])
+    .flatMap((p) => p.user ? [] : [])
+    .filter(() => false);
 
   return (
     <ScreenContainer>
@@ -146,25 +96,19 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
         </View>
 
         {tab === 'details' ? (
-          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={vote} onUnvote={unvote} onFinalize={finalizePlan} onUnfinalize={unfinalizePlan} onCancel={cancelPlan} onComplete={completePlan} onAddProposal={addProposal} onRepeat={handleRepeat} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} onApiCancel={apiCancelPlan} onApiComplete={apiCompletePlan} />
+          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={apiVote} onUnvote={apiUnvote} onFinalize={apiFinalize} onUnfinalize={apiUnfinalize} onCancel={apiCancelPlan} onComplete={apiCompletePlan} onAddProposal={apiCreateProposal} onRepeat={handleRepeat} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} />
         ) : (
-          <ChatTab messages={planMessages} input={chatInput} setInput={setChatInput} onSend={handleSend} planId={planId} onVote={vote} onUnvote={unvote} userId={user.id} />
+          <ChatTab messages={planMessages} input={chatInput} setInput={setChatInput} onSend={handleSend} planId={planId} onVote={apiVote} onUnvote={apiUnvote} userId={user.id} />
         )}
 
         <Modal visible={showInviteModal} transparent animationType="slide" onRequestClose={() => setShowInviteModal(false)}>
           <View style={s.modalOverlay}>
             <View style={s.modalContent}>
               <Text style={s.modalTitle}>Пригласить в план</Text>
-              {nonParticipants.length === 0 ? (
-                <Text style={s.modalEmpty}>Все друзья уже в плане</Text>
+              {participantUserIds.size >= 15 ? (
+                <Text style={s.modalEmpty}>Максимум участников</Text>
               ) : (
-                <FlatList data={nonParticipants} keyExtractor={(u) => u.id} renderItem={({ item }) => (
-                  <TouchableOpacity style={s.inviteRow} onPress={() => handleInviteFriend(item.id)}>
-                    <View style={s.inviteAvatar}><Text style={s.inviteLetter}>{item.name[0]}</Text></View>
-                    <Text style={s.inviteName}>{item.name}</Text>
-                    <Text style={s.invitePlus}>+</Text>
-                  </TouchableOpacity>
-                )} style={{ maxHeight: 300 }} />
+                <Text style={s.modalEmpty}>Введите ID пользователя для приглашения</Text>
               )}
               <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowInviteModal(false)}>
                 <Text style={s.modalCancelText}>Закрыть</Text>
@@ -177,22 +121,20 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   );
 };
 
-const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, onFinalize, onUnfinalize, onCancel, onComplete, onAddProposal, onRepeat, onInvite, onRemove, onLeave, onApiCancel, onApiComplete }: {
+const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, onFinalize, onUnfinalize, onCancel, onComplete, onAddProposal, onRepeat, onInvite, onRemove, onLeave }: {
   plan: Plan; isCreator: boolean; myStatus: ParticipantStatus;
   onSetStatus: (s: ParticipantStatus) => void;
-  onVote: (planId: string, proposalId: string, userId: string) => void;
-  onUnvote: (planId: string, proposalId: string, userId: string) => void;
-  onFinalize: (planId: string, placeProposalId?: string, timeProposalId?: string) => void;
-  onUnfinalize: (planId: string) => void;
-  onCancel: (planId: string) => void;
-  onComplete: (planId: string) => void;
-  onAddProposal: (planId: string, proposal: PlanProposal) => void;
+  onVote: (planId: string, proposalId: string) => Promise<void>;
+  onUnvote: (planId: string, proposalId: string) => Promise<void>;
+  onFinalize: (planId: string, placeProposalId?: string, timeProposalId?: string) => Promise<void>;
+  onUnfinalize: (planId: string) => Promise<void>;
+  onCancel: (planId: string) => Promise<void>;
+  onComplete: (planId: string) => Promise<void>;
+  onAddProposal: (planId: string, data: { type: string; value_text: string; value_lat?: number; value_lng?: number; value_datetime?: string }) => Promise<void>;
   onRepeat: () => void;
   onInvite: () => void;
   onRemove?: (userId: string) => void;
   onLeave?: () => void;
-  onApiCancel: (planId: string) => void;
-  onApiComplete: (planId: string) => void;
 }) => {
   const user = useAuthStore((s) => s.user);
   const [propModalVisible, setPropModalVisible] = useState(false);
@@ -218,33 +160,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
   const handleAddProposal = () => {
     if (!user) return;
     if (propType === 'place' && propValue.trim()) {
-      onAddProposal(plan.id, {
-        id: `prop-${Date.now()}`,
-        plan_id: plan.id,
-        proposer_id: user.id,
-        type: 'place',
-        value_text: propValue.trim(),
-        value_lat: null,
-        value_lng: null,
-        value_datetime: null,
-        status: 'active',
-        created_at: new Date().toISOString(),
-        votes: [],
-      });
+      onAddProposal(plan.id, { type: 'place', value_text: propValue.trim() });
     } else if (propType === 'time' && propTimeValue.trim()) {
-      onAddProposal(plan.id, {
-        id: `prop-${Date.now()}`,
-        plan_id: plan.id,
-        proposer_id: user.id,
-        type: 'time',
-        value_text: propTimeValue.trim(),
-        value_lat: null,
-        value_lng: null,
-        value_datetime: propTimeValue.trim(),
-        status: 'active',
-        created_at: new Date().toISOString(),
-        votes: [],
-      });
+      onAddProposal(plan.id, { type: 'time', value_text: propTimeValue.trim(), value_datetime: propTimeValue.trim() });
     }
     setPropValue('');
     setPropTimeValue('');
@@ -365,11 +283,11 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
               </TouchableOpacity>
             )}
             {plan.lifecycle_state === 'active' && !(plan.place_status === 'confirmed' && plan.time_status === 'confirmed') && (
-              <TouchableOpacity style={s.completeBtn} onPress={() => onApiComplete(plan.id)}>
+              <TouchableOpacity style={s.completeBtn} onPress={() => onComplete(plan.id)}>
                 <Text style={s.completeBtnText}>Завершить план</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={s.cancelBtn} onPress={() => onApiCancel(plan.id)}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => onCancel(plan.id)}>
               <Text style={s.cancelBtnText}>Отменить план</Text>
             </TouchableOpacity>
           </View>
@@ -414,9 +332,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
 
 const ProposalCard = ({ proposal, userId, planId, onVote, onUnvote, isCreator, onFinalize, proposalType, votesUsed, maxVotes }: {
   proposal: PlanProposal; userId: string; planId: string;
-  onVote: (planId: string, proposalId: string, userId: string) => void;
-  onUnvote: (planId: string, proposalId: string, userId: string) => void;
-  isCreator: boolean; onFinalize: (planId: string, placeProposalId?: string, timeProposalId?: string) => void;
+  onVote: (planId: string, proposalId: string) => Promise<void>;
+  onUnvote: (planId: string, proposalId: string) => Promise<void>;
+  isCreator: boolean; onFinalize: (planId: string, placeProposalId?: string, timeProposalId?: string) => Promise<void>;
   proposalType: 'place' | 'time';
   votesUsed: number;
   maxVotes: number;
@@ -431,7 +349,7 @@ const ProposalCard = ({ proposal, userId, planId, onVote, onUnvote, isCreator, o
       <View style={s.proposalActions}>
         <TouchableOpacity
           style={[s.voteBtn, hasVoted && s.voteBtnActive, !hasVoted && !canVote && s.voteBtnDisabled]}
-          onPress={() => hasVoted ? onUnvote(planId, proposal.id, userId) : canVote ? onVote(planId, proposal.id, userId) : null}
+          onPress={() => hasVoted ? onUnvote(planId, proposal.id) : canVote ? onVote(planId, proposal.id) : null}
           disabled={!hasVoted && !canVote}
         >
           <Text style={s.voteBtnText}>{hasVoted ? '✓' : '👍'} {voteCount}</Text>
@@ -446,7 +364,7 @@ const ProposalCard = ({ proposal, userId, planId, onVote, onUnvote, isCreator, o
   );
 };
 
-const ChatTab = ({ messages: msgs, input, setInput, onSend, planId, onVote, onUnvote, userId }: { messages: Message[]; input: string; setInput: (v: string) => void; onSend: () => void; planId: string; onVote: (planId: string, proposalId: string, userId: string) => void; onUnvote: (planId: string, proposalId: string, userId: string) => void; userId: string }) => {
+const ChatTab = ({ messages: msgs, input, setInput, onSend, planId, onVote, onUnvote, userId }: { messages: Message[]; input: string; setInput: (v: string) => void; onSend: () => void; planId: string; onVote: (planId: string, proposalId: string) => Promise<void>; onUnvote: (planId: string, proposalId: string) => Promise<void>; userId: string }) => {
   const plans = usePlansStore((s) => s.plans);
   const plan = plans.find((p) => p.id === planId);
 
@@ -465,7 +383,7 @@ const ChatTab = ({ messages: msgs, input, setInput, onSend, planId, onVote, onUn
                 <View style={s.msgProposalActions}>
                   <TouchableOpacity
                     style={[s.voteBtn, prop.votes?.some((v) => v.voter_id === userId) && s.voteBtnActive]}
-                    onPress={() => prop.votes?.some((v) => v.voter_id === userId) ? onUnvote(planId, prop.id, userId) : onVote(planId, prop.id, userId)}
+                    onPress={() => prop.votes?.some((v) => v.voter_id === userId) ? onUnvote(planId, prop.id) : onVote(planId, prop.id)}
                   >
                     <Text style={s.voteBtnText}>{prop.votes?.some((v) => v.voter_id === userId) ? '✓' : '👍'} {prop.votes?.length ?? 0}</Text>
                   </TouchableOpacity>

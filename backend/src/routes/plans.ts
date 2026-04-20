@@ -176,6 +176,39 @@ export async function planRoutes(app: FastifyInstance) {
     return { participants };
   });
 
+  app.post('/:planId/participants', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { planId } = request.params as { planId: string };
+    const { user_id: inviteeId } = request.body as { user_id: string };
+    if (!inviteeId) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'user_id required' });
+
+    const plan = (await query('SELECT * FROM plans WHERE id = $1 FOR UPDATE', [planId])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can invite' });
+    if (plan.lifecycle_state !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only invite in active plans' });
+
+    const existing = (await query('SELECT 1 FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [planId, inviteeId])).rows[0];
+    if (existing) return reply.code(409).send({ code: 'ALREADY_PARTICIPANT', message: 'User is already a participant' });
+
+    const count = (await query('SELECT COUNT(*) as c FROM plan_participants WHERE plan_id = $1', [planId])).rows[0].c;
+    if (parseInt(count) >= 15) return reply.code(409).send({ code: 'PLAN_FULL', message: 'Plan has max 15 participants' });
+
+    const inviterName = (await query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
+    await query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'invited')", [planId, inviteeId]);
+    await query("INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status) VALUES ('plan', $1, $2, $3, 'pending')", [planId, userId, inviteeId]);
+    await query("INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'plan_invite', $2)", [inviteeId, JSON.stringify({ plan_id: planId, inviter_name: inviterName })]);
+
+    const r = (await query(
+      `SELECT pp.*, u.id as u_id, u.phone as u_phone, u.name as u_name, u.username as u_username, u.avatar_url as u_avatar, u.created_at as u_created
+       FROM plan_participants pp JOIN users u ON pp.user_id = u.id WHERE pp.plan_id = $1 AND pp.user_id = $2`,
+      [planId, inviteeId]
+    )).rows[0];
+    return { participant: {
+      id: r.id, plan_id: r.plan_id, user_id: r.user_id, status: r.status, joined_at: r.joined_at,
+      user: { id: r.u_id, phone: r.u_phone, name: r.u_name, username: r.u_username, avatar_url: r.u_avatar, created_at: r.u_created },
+    }};
+  });
+
   app.patch('/:planId/participants/:uid', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { planId, uid } = request.params as { planId: string; uid: string };
@@ -345,15 +378,18 @@ export async function planRoutes(app: FastifyInstance) {
       await client.query('BEGIN');
 
       const sets: string[] = ["lifecycle_state = 'finalized'", 'updated_at = now()'];
+      const params: any[] = [id];
+      let idx = 2;
 
       if (place_proposal_id) {
         const prop = (await client.query('SELECT * FROM plan_proposals WHERE id = $1 AND plan_id = $2 AND type = $3', [place_proposal_id, id, 'place'])).rows[0];
         if (!prop) { await client.query('ROLLBACK'); client.release(); return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Place proposal not found' }); }
-        sets.push(`confirmed_place_text = '${prop.value_text.replace(/'/g, "''")}'`);
-        sets.push(prop.value_lat ? `confirmed_place_lat = ${prop.value_lat}` : 'confirmed_place_lat = NULL');
-        sets.push(prop.value_lng ? `confirmed_place_lng = ${prop.value_lng}` : 'confirmed_place_lng = NULL');
+        sets.push(`confirmed_place_text = $${idx}`); params.push(prop.value_text); idx++;
+        sets.push(prop.value_lat != null ? `confirmed_place_lat = $${idx}` : 'confirmed_place_lat = NULL');
+        if (prop.value_lat != null) { params.push(prop.value_lat); idx++; }
+        sets.push(prop.value_lng != null ? `confirmed_place_lng = $${idx}` : 'confirmed_place_lng = NULL');
+        if (prop.value_lng != null) { params.push(prop.value_lng); idx++; }
         sets.push("place_status = 'confirmed'");
-        // Mark proposals
         await client.query("UPDATE plan_proposals SET status = 'finalized' WHERE id = $1", [place_proposal_id]);
         await client.query("UPDATE plan_proposals SET status = 'superseded' WHERE plan_id = $1 AND type = 'place' AND id != $2 AND status = 'active'", [id, place_proposal_id]);
       }
@@ -361,14 +397,23 @@ export async function planRoutes(app: FastifyInstance) {
       if (time_proposal_id) {
         const prop = (await client.query('SELECT * FROM plan_proposals WHERE id = $1 AND plan_id = $2 AND type = $3', [time_proposal_id, id, 'time'])).rows[0];
         if (!prop) { await client.query('ROLLBACK'); client.release(); return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Time proposal not found' }); }
-        sets.push(`confirmed_time = '${prop.value_datetime || prop.value_text.replace(/'/g, "''")}'`);
+        const rawTime = prop.value_datetime || prop.value_text;
+        let timeVal: string;
+        if (rawTime instanceof Date) {
+          timeVal = rawTime.toISOString();
+        } else if (typeof rawTime === 'string') {
+          const d = new Date(rawTime);
+          timeVal = isNaN(d.getTime()) ? rawTime : d.toISOString();
+        } else {
+          timeVal = String(rawTime);
+        }
+        sets.push(`confirmed_time = $${idx}`); params.push(timeVal); idx++;
         sets.push("time_status = 'confirmed'");
         await client.query("UPDATE plan_proposals SET status = 'finalized' WHERE id = $1", [time_proposal_id]);
         await client.query("UPDATE plan_proposals SET status = 'superseded' WHERE plan_id = $1 AND type = 'time' AND id != $2 AND status = 'active'", [id, time_proposal_id]);
       }
 
-      // If no proposals provided but place/time already confirmed from creation, finalize directly
-      await client.query(`UPDATE plans SET ${sets.join(', ')} WHERE id = $1`, [id]);
+      await client.query(`UPDATE plans SET ${sets.join(', ')} WHERE id = $1`, params);
 
       // Notify participants
       const participants = (await client.query('SELECT user_id FROM plan_participants WHERE plan_id = $1', [id])).rows;

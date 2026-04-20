@@ -36,14 +36,14 @@ All criteria assume authenticated user (phone OTP).
 ## Create Plan from Event
 
 - [ ] Event title, venue, time are prefilled and read-only
-- [ ] Friend list loads from /users/friends
+- [ ] Friend list loads from /users/friends (MOCK-ONLY: uses mockUsers until friends API exists)
 - [ ] Group list loads from /groups
 - [ ] Selecting a group pre-selects its members
 - [ ] Creating plan returns 201 with full plan object
 - [ ] Plan is immediately visible in Plans Hub (active)
 - [ ] Creator appears as participant with status=going
 - [ ] Each selected friend appears as participant with status=invited
-- [ ] Each invited friend receives a plan_invite notification
+- [ ] Each invited friend receives a plan_invite notification (server-side)
 - [ ] Linked event data is anchored (read-only in plan)
 
 ## Generic Create Plan
@@ -60,34 +60,36 @@ All criteria assume authenticated user (phone OTP).
 - [ ] Plan loads with participants, proposals, linked event
 - [ ] Participants show name + status badge (color-coded)
 - [ ] User can set own status (going/thinking/cant) — server-confirmed
+- [ ] Creator can invite participant via POST /plans/{id}/participants — server creates invitation + notification
 - [ ] "Предложить место/время" button creates proposal via POST
-- [ ] Proposal appears in both details tab and chat (proposal_card message)
-- [ ] Other participants receive proposal_created notification
+- [ ] Proposal appears in both details tab and chat (proposal_card message, created server-side)
+- [ ] Other participants receive proposal_created notification (server-side)
 - [ ] Place/time status changes from undecided → proposed when first proposal added
 - [ ] Voting: tap to vote, tap again to unvote — optimistic
 - [ ] Max 2 votes per type per user — 409 on exceed, UI rolls back
 - [ ] Creator can finalize by selecting place + time proposal
-- [ ] Finalize: lifecycle → finalized, confirmed data set, losing proposals → superseded, all get plan_finalized notification
-- [ ] Creator can unfinalize: lifecycle → active, superseded proposals → active, plan_unfinalized notification sent
+- [ ] Finalize: lifecycle → finalized, confirmed data set, losing proposals → superseded, all get plan_finalized notification (server-side)
+- [ ] Creator can unfinalize: lifecycle → active, superseded proposals → active, plan_unfinalized notification sent (server-side)
 - [ ] Creator can cancel: lifecycle → cancelled
-- [ ] Only creator sees finalize/unfinalize/cancel buttons
+- [ ] Creator can complete: lifecycle → completed
+- [ ] Only creator sees finalize/unfinalize/cancel/invite buttons
 
 ## Plan Details — Chat Tab
 
-- [ ] Messages load in chronological order
+- [ ] Messages load in chronological order via GET /plans/{id}/messages
 - [ ] User messages show sender name + text
 - [ ] System messages have distinct styling (left border)
-- [ ] Proposal cards show "📋 Предложение" text
+- [ ] Proposal cards show place/time label + proposal text
 - [ ] Sending a message appends optimistically; on failure, marked as failed
 - [ ] Pagination: scroll up loads older messages via ?before cursor
 
 ## Invitations
 
-- [ ] Pending invitations load in Plans Hub Приглашения section
+- [ ] Pending invitations load in Plans Hub Приглашения section via GET /invitations?status=pending
 - [ ] Each invitation shows: plan/group title, inviter context
-- [ ] Accept (plan): creates participant (status=going), creates system message, invitation status → accepted
-- [ ] Accept (group): creates group_member, invitation status → accepted
-- [ ] Decline: invitation status → declined, no side-effects
+- [ ] Accept (plan): PATCH /invitations/{id}, server creates participant (status=going) + system message, frontend re-fetches plan
+- [ ] Accept (group): PATCH /invitations/{id}, server creates group_member
+- [ ] Decline: PATCH /invitations/{id}, invitation status → declined, no side-effects
 - [ ] After accept, plan appears in Active plans
 - [ ] Accept/decline are server-confirmed
 
@@ -110,16 +112,18 @@ All criteria assume authenticated user (phone OTP).
   - Creator as going
   - place_status=undecided, time_status=undecided
   - No proposals carried over
-- [ ] New invitations + notifications created
+- [ ] New invitations + notifications created (server-side)
 - [ ] Navigates to new plan's details
 
 ## Search
 
-- [ ] Text search matches event title, venue name, tags
-- [ ] Category filter works
+- [ ] Text search matches event title, venue name, tags via GET /search/events
+- [ ] Category filter works via query param
+- [ ] Date filters (today/week/weekend) converted to date_from/date_to query params
 - [ ] Results show cover, title, venue, date
 - [ ] Tapping result navigates to EventDetails
 - [ ] Empty results show "Ничего не найдено"
+- [ ] Search debounced (300ms)
 
 ## Venue Screen
 
@@ -132,6 +136,7 @@ All criteria assume authenticated user (phone OTP).
 
 - [ ] Shows user name, username, avatar initial
 - [ ] "Сохранённые" shows saved events list
+- [ ] Friends list is MOCK-ONLY (no /users/friends endpoint yet)
 - [ ] Logout clears tokens, returns to AuthScreen
 - [ ] No "Скоро" or non-functional menu items
 
@@ -143,3 +148,4 @@ All criteria assume authenticated user (phone OTP).
 - [ ] Max 2 votes per type per user per plan enforced (409)
 - [ ] All user-facing text is in Russian
 - [ ] Network errors show retryable state, not silent failures
+- [ ] No client-side notification creation — all notifications created server-side

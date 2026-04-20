@@ -1,5 +1,5 @@
 import { api, camelize } from './client';
-import type { Plan, ParticipantStatus } from '../types';
+import type { Plan, ParticipantStatus, PlanProposal, Message } from '../types';
 
 interface PlansResponse {
   plans: Plan[];
@@ -40,3 +40,52 @@ export const cancelPlan = (planId: string) =>
 
 export const completePlan = (planId: string) =>
   api(`/plans/${planId}/complete`, { method: 'POST' });
+
+export const fetchProposals = (planId: string, type?: string, status?: string) => {
+  const qs = new URLSearchParams();
+  if (type) qs.set('type', type);
+  if (status) qs.set('status', status);
+  const q = qs.toString();
+  return api<{ proposals: PlanProposal[] }>(`/plans/${planId}/proposals${q ? '?' + q : ''}`).then((r) => camelize<{ proposals: PlanProposal[] }>(r));
+};
+
+export const createProposal = (planId: string, data: {
+  type: string;
+  value_text: string;
+  value_lat?: number;
+  value_lng?: number;
+  value_datetime?: string;
+}) => api<{ proposal: PlanProposal }>(`/plans/${planId}/proposals`, { method: 'POST', body: data }).then((r) => camelize<{ proposal: PlanProposal }>(r));
+
+export const voteOnProposal = (planId: string, proposalId: string) =>
+  api<{ vote: { id: string; proposal_id: string; voter_id: string; created_at: string } }>(`/plans/${planId}/proposals/${proposalId}/vote`, { method: 'POST' });
+
+export const unvoteProposal = (planId: string, proposalId: string) =>
+  api(`/plans/${planId}/proposals/${proposalId}/vote`, { method: 'DELETE' });
+
+export const finalizePlan = (planId: string, placeProposalId?: string, timeProposalId?: string) => {
+  const body: Record<string, string> = {};
+  if (placeProposalId) body.place_proposal_id = placeProposalId;
+  if (timeProposalId) body.time_proposal_id = timeProposalId;
+  return api<{ plan: Plan }>(`/plans/${planId}/finalize`, { method: 'POST', body }).then((r) => camelize<{ plan: Plan }>(r));
+};
+
+export const unfinalizePlan = (planId: string) =>
+  api<{ plan: Plan }>(`/plans/${planId}/unfinalize`, { method: 'POST' }).then((r) => camelize<{ plan: Plan }>(r));
+
+export const repeatPlan = (planId: string) =>
+  api<{ plan: Plan }>(`/plans/${planId}/repeat`, { method: 'POST' }).then((r) => camelize<{ plan: Plan }>(r));
+
+export const fetchMessages = (planId: string, before?: string, limit?: number) => {
+  const qs = new URLSearchParams();
+  if (before) qs.set('before', before);
+  if (limit) qs.set('limit', String(limit));
+  const q = qs.toString();
+  return api<{ messages: Message[] }>(`/plans/${planId}/messages${q ? '?' + q : ''}`).then((r) => camelize<{ messages: Message[] }>(r));
+};
+
+export const sendMessage = (planId: string, text: string) =>
+  api<{ message: Message }>(`/plans/${planId}/messages`, { method: 'POST', body: { text } }).then((r) => camelize<{ message: Message }>(r));
+
+export const inviteParticipant = (planId: string, inviteeId: string) =>
+  api(`/plans/${planId}/participants`, { method: 'POST', body: { user_id: inviteeId } });

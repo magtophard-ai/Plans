@@ -4,8 +4,7 @@ import { theme } from '../theme';
 import { useAuthStore } from '../stores/authStore';
 import { usePlansStore } from '../stores/plansStore';
 import { useGroupsStore } from '../stores/groupsStore';
-import { useInvitationsStore } from '../stores/invitationsStore';
-import { ACTIVITY_LABELS, type ActivityType, type Plan } from '../types';
+import { ACTIVITY_LABELS, type ActivityType } from '../types';
 import { mockUsers } from '../mocks';
 import { ScreenContainer } from '../components/ScreenContainer';
 
@@ -28,10 +27,8 @@ interface Props {
 
 export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVenue, linkedEventTime, onDone, preselectedGroupIds }: Props) => {
   const user = useAuthStore((s) => s.user);
-  const addPlan = usePlansStore((s) => s.addPlan);
   const apiCreatePlan = usePlansStore((s) => s.apiCreatePlan);
   const groups = useGroupsStore((s) => s.groups);
-  const addInvitation = useInvitationsStore((s) => s.addInvitation);
 
   const isFromEvent = !!linkedEventId;
 
@@ -85,49 +82,6 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
       return;
     }
 
-    const participants = friends
-      .filter((f) => f.selected)
-      .map((f) => ({
-        id: `pp-${Date.now()}-${f.id}`,
-        plan_id: '',
-        user_id: f.id,
-        status: 'invited' as const,
-        joined_at: new Date().toISOString(),
-        user: mockUsers.find((u) => u.id === f.id),
-      }));
-
-    const planId = `plan-${Date.now()}`;
-
-    const plan: Plan = {
-      id: planId,
-      creator_id: user.id,
-      title: title.trim(),
-      activity_type: activityType,
-      linked_event_id: linkedEventId ?? null,
-      place_status: placeText.trim() ? 'confirmed' : 'undecided',
-      time_status: timeText.trim() ? 'confirmed' : 'undecided',
-      confirmed_place_text: placeText.trim() || null,
-      confirmed_place_lat: null,
-      confirmed_place_lng: null,
-      confirmed_time: timeText.trim() || null,
-      lifecycle_state: 'active',
-      pre_meet_enabled: preMeetEnabled,
-      pre_meet_place_text: preMeetEnabled ? preMeetPlace.trim() || null : null,
-      pre_meet_time: preMeetEnabled ? preMeetTime.trim() || null : null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      participants: [
-        { id: `pp-me-${Date.now()}`, plan_id: '', user_id: user.id, status: 'going', joined_at: new Date().toISOString(), user },
-        ...participants,
-      ],
-      proposals: [],
-    };
-
-    addPlan(plan);
-    selectedFriendIds.forEach((friendId) => {
-      addInvitation('plan', planId, user.id, friendId);
-    });
-
     try {
       const apiPlanId = await apiCreatePlan({
         title: title.trim(),
@@ -140,9 +94,9 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
         pre_meet_time: preMeetEnabled ? preMeetTime.trim() || undefined : undefined,
         participant_ids: selectedFriendIds,
       });
-      onDone(apiPlanId || planId);
+      onDone(apiPlanId);
     } catch {
-      onDone(planId);
+      onDone('');
     }
   };
 

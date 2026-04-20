@@ -1,33 +1,11 @@
 import { create } from 'zustand';
-import type { Plan, PlanProposal, Vote, PlanParticipant, ParticipantStatus, PlanLifecycle } from '../types';
-import { mockPlans, mockMessages } from '../mocks';
-import type { Message } from '../types';
-import { useNotificationsStore } from './notificationsStore';
-import { useAuthStore } from './authStore';
-import { mockUsers } from '../mocks';
+import type { Plan, PlanProposal, PlanParticipant, ParticipantStatus, PlanLifecycle, Message } from '../types';
 import * as plansApi from '../api/plans';
-
-const MAX_VOTES_PER_TYPE = 2;
-const MAX_PARTICIPANTS = 15;
 
 interface PlansState {
   plans: Plan[];
   messages: Record<string, Message[]>;
   loading: boolean;
-  addPlan: (plan: Plan) => void;
-  updatePlanState: (planId: string, state: PlanLifecycle) => void;
-  finalizePlan: (planId: string, placeProposalId?: string, timeProposalId?: string) => void;
-  unfinalizePlan: (planId: string) => void;
-  cancelPlan: (planId: string) => void;
-  completePlan: (planId: string) => void;
-  updateParticipantStatus: (planId: string, userId: string, status: ParticipantStatus) => void;
-  addProposal: (planId: string, proposal: PlanProposal) => void;
-  vote: (planId: string, proposalId: string, userId: string) => void;
-  unvote: (planId: string, proposalId: string, userId: string) => void;
-  addMessage: (planId: string, message: Message) => void;
-  inviteParticipant: (planId: string, userId: string) => void;
-  removeParticipant: (planId: string, userId: string) => void;
-  leavePlan: (planId: string, userId: string) => void;
   fetchMyPlans: () => Promise<void>;
   fetchPlan: (planId: string) => Promise<void>;
   apiCreatePlan: (data: Parameters<typeof plansApi.createPlan>[0]) => Promise<string>;
@@ -35,205 +13,28 @@ interface PlansState {
   apiRemoveParticipant: (planId: string, userId: string) => Promise<void>;
   apiCancelPlan: (planId: string) => Promise<void>;
   apiCompletePlan: (planId: string) => Promise<void>;
+  apiFinalize: (planId: string, placeProposalId?: string, timeProposalId?: string) => Promise<void>;
+  apiUnfinalize: (planId: string) => Promise<void>;
+  apiCreateProposal: (planId: string, data: Parameters<typeof plansApi.createProposal>[1]) => Promise<void>;
+  apiVote: (planId: string, proposalId: string) => Promise<void>;
+  apiUnvote: (planId: string, proposalId: string) => Promise<void>;
+  apiRepeat: (planId: string) => Promise<string | null>;
+  apiFetchMessages: (planId: string, before?: string) => Promise<void>;
+  apiSendMessage: (planId: string, text: string) => Promise<void>;
+  apiFetchProposals: (planId: string) => Promise<void>;
+  apiInviteParticipant: (planId: string, inviteeId: string) => Promise<void>;
 }
 
+const upsertPlan = (plans: Plan[], updated: Plan): Plan[] =>
+  plans.some((p) => p.id === updated.id)
+    ? plans.map((p) => (p.id === updated.id ? updated : p))
+    : [updated, ...plans];
+
 export const usePlansStore = create<PlansState>((set, get) => ({
-  plans: mockPlans,
-  messages: mockMessages,
+  plans: [],
+  messages: {},
   loading: false,
-  addPlan: (plan) => set((s) => ({ plans: [plan, ...s.plans] })),
-  updatePlanState: (planId, state) => set((s) => ({
-    plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: state } : p),
-  })),
-  finalizePlan: (planId, placeProposalId, timeProposalId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    set((s) => ({
-      plans: s.plans.map((p) => {
-        if (p.id !== planId) return p;
-        let updated = { ...p, lifecycle_state: 'finalized' as PlanLifecycle };
-        const updatedProposals = [...(p.proposals || [])];
-        if (placeProposalId) {
-          const prop = updatedProposals.find((pr) => pr.id === placeProposalId);
-          if (prop) {
-            updated.place_status = 'confirmed';
-            updated.confirmed_place_text = prop.value_text;
-            updated.confirmed_place_lat = prop.value_lat;
-            updated.confirmed_place_lng = prop.value_lng;
-          }
-          for (let i = 0; i < updatedProposals.length; i++) {
-            if (updatedProposals[i].type === 'place' && updatedProposals[i].status === 'active') {
-              updatedProposals[i] = { ...updatedProposals[i], status: updatedProposals[i].id === placeProposalId ? 'finalized' as const : 'superseded' as const };
-            }
-          }
-        }
-        if (timeProposalId) {
-          const prop = updatedProposals.find((pr) => pr.id === timeProposalId);
-          if (prop) {
-            updated.time_status = 'confirmed';
-            updated.confirmed_time = prop.value_datetime;
-          }
-          for (let i = 0; i < updatedProposals.length; i++) {
-            if (updatedProposals[i].type === 'time' && updatedProposals[i].status === 'active') {
-              updatedProposals[i] = { ...updatedProposals[i], status: updatedProposals[i].id === timeProposalId ? 'finalized' as const : 'superseded' as const };
-            }
-          }
-        }
-        updated.proposals = updatedProposals;
-        return updated;
-      }),
-    }));
-    (plan.participants || []).forEach((p) => {
-      useNotificationsStore.getState().addNotification(p.user_id, 'plan_finalized', { plan_id: planId, plan_title: plan.title });
-    });
-  },
-  unfinalizePlan: (planId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    set((s) => ({
-      plans: s.plans.map((p) => {
-        if (p.id !== planId) return p;
-        let place_status: typeof p.place_status = p.place_status;
-        let time_status: typeof p.time_status = p.time_status;
-        if (p.confirmed_place_text && !p.proposals?.some((pr) => pr.type === 'place' && pr.status === 'finalized')) {
-          place_status = 'confirmed';
-        } else if (p.proposals?.some((pr) => pr.type === 'place' && pr.status === 'finalized')) {
-          place_status = 'proposed';
-        }
-        if (p.confirmed_time && !p.proposals?.some((pr) => pr.type === 'time' && pr.status === 'finalized')) {
-          time_status = 'confirmed';
-        } else if (p.proposals?.some((pr) => pr.type === 'time' && pr.status === 'finalized')) {
-          time_status = 'proposed';
-        }
-        const proposals = (p.proposals || []).map((pr) =>
-          pr.status === 'finalized' || pr.status === 'superseded' ? { ...pr, status: 'active' as const } : pr
-        );
-        return { ...p, lifecycle_state: 'active', place_status, time_status, proposals };
-      }),
-    }));
-    (plan.participants || []).forEach((p) => {
-      useNotificationsStore.getState().addNotification(p.user_id, 'plan_unfinalized', { plan_id: planId, plan_title: plan.title });
-    });
-  },
-  cancelPlan: (planId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    set((s) => ({
-      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'cancelled' } : p),
-    }));
-  },
-  completePlan: (planId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    set((s) => ({
-      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'completed' } : p),
-    }));
-    (plan.participants || []).forEach((p) => {
-      useNotificationsStore.getState().addNotification(p.user_id, 'plan_completed', { plan_id: planId, plan_title: plan.title });
-    });
-  },
-  updateParticipantStatus: (planId, userId, status) => set((s) => ({
-    plans: s.plans.map((p) => p.id !== planId ? p : {
-      ...p,
-      participants: p.participants?.map((pp) => pp.user_id === userId ? { ...pp, status } : pp),
-    }),
-  })),
-  addProposal: (planId, proposal) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    set((s) => ({
-      plans: s.plans.map((p) => p.id !== planId ? p : {
-        ...p,
-        proposals: [...(p.proposals || []), proposal],
-        place_status: proposal.type === 'place' && p.place_status === 'undecided' ? 'proposed' : p.place_status,
-        time_status: proposal.type === 'time' && p.time_status === 'undecided' ? 'proposed' : p.time_status,
-      }),
-    }));
-    const proposalMsg: Message = {
-      id: `msg-prop-${Date.now()}`,
-      context_type: 'plan',
-      context_id: planId,
-      sender_id: proposal.proposer_id,
-      text: '',
-      type: 'proposal_card',
-      reference_id: proposal.id,
-      created_at: new Date().toISOString(),
-      sender: mockUsers.find((u) => u.id === proposal.proposer_id),
-    };
-    set((s) => ({ messages: { ...s.messages, [planId]: [...(s.messages[planId] || []), proposalMsg] } }));
-    if (plan) {
-      (plan.participants || []).forEach((p) => {
-        if (p.user_id !== proposal.proposer_id) {
-          useNotificationsStore.getState().addNotification(p.user_id, 'proposal_created', { plan_id: planId, proposer_name: mockUsers.find((u) => u.id === proposal.proposer_id)?.name ?? '' });
-        }
-      });
-    }
-  },
-  vote: (planId, proposalId, userId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    const proposal = plan.proposals?.find((pr) => pr.id === proposalId);
-    if (!proposal) return;
-    const myVotesForType = (plan.proposals || []).filter(
-      (pr) => pr.type === proposal.type && pr.status === 'active' && pr.votes?.some((v) => v.voter_id === userId)
-    ).length;
-    const alreadyVotedThis = proposal.votes?.some((v) => v.voter_id === userId);
-    if (!alreadyVotedThis && myVotesForType >= MAX_VOTES_PER_TYPE) return;
-    set((s) => ({
-      plans: s.plans.map((p) => p.id !== planId ? p : {
-        ...p,
-        proposals: p.proposals?.map((pr) => pr.id !== proposalId ? pr : {
-          ...pr,
-          votes: [...(pr.votes || []), { id: `vote-${Date.now()}`, proposal_id: proposalId, voter_id: userId, created_at: new Date().toISOString() }],
-        }),
-      }),
-    }));
-  },
-  unvote: (planId, proposalId, userId) => set((s) => ({
-    plans: s.plans.map((p) => p.id !== planId ? p : {
-      ...p,
-      proposals: p.proposals?.map((pr) => pr.id !== proposalId ? pr : {
-        ...pr,
-        votes: (pr.votes || []).filter((v) => !(v.proposal_id === proposalId && v.voter_id === userId)),
-      }),
-    }),
-  })),
-  addMessage: (planId, message) => set((s) => ({
-    messages: { ...s.messages, [planId]: [...(s.messages[planId] || []), message] },
-  })),
-  inviteParticipant: (planId, userId) => {
-    const plan = get().plans.find((p) => p.id === planId);
-    if (!plan) return;
-    const currentCount = plan.participants?.length ?? 0;
-    if (currentCount >= MAX_PARTICIPANTS) return;
-    const alreadyIn = plan.participants?.some((p) => p.user_id === userId);
-    if (alreadyIn) return;
-    const newParticipant: PlanParticipant = {
-      id: `pp-inv-${Date.now()}`,
-      plan_id: planId,
-      user_id: userId,
-      status: 'invited',
-      joined_at: new Date().toISOString(),
-      user: mockUsers.find((u) => u.id === userId),
-    };
-    set((s) => ({
-      plans: s.plans.map((p) => p.id !== planId ? p : {
-        ...p,
-        participants: [...(p.participants || []), newParticipant],
-      }),
-    }));
-  },
-  removeParticipant: (planId, userId) => set((s) => ({
-    plans: s.plans.map((p) => p.id !== planId ? p : {
-      ...p,
-      participants: (p.participants || []).filter((pp) => pp.user_id !== userId),
-    }),
-  })),
-  leavePlan: (planId, userId) => set((s) => ({
-    plans: s.plans.map((p) => p.id !== planId ? p : {
-      ...p,
-      participants: (p.participants || []).filter((pp) => pp.user_id !== userId),
-    }),
-  })),
+
   fetchMyPlans: async () => {
     set({ loading: true });
     try {
@@ -243,47 +44,291 @@ export const usePlansStore = create<PlansState>((set, get) => ({
       set({ loading: false });
     }
   },
+
   fetchPlan: async (planId) => {
     try {
       const plan = await plansApi.fetchPlan(planId);
-      set((s) => ({
-        plans: s.plans.some((p) => p.id === planId) ? s.plans.map((p) => p.id === planId ? plan : p) : [plan, ...s.plans],
-      }));
+      set((s) => ({ plans: upsertPlan(s.plans, plan) }));
     } catch {}
   },
+
   apiCreatePlan: async (data) => {
     const plan = await plansApi.createPlan(data);
     set((s) => ({ plans: [plan, ...s.plans] }));
     return plan.id;
   },
+
   apiUpdateParticipantStatus: async (planId, userId, status) => {
     await plansApi.updateParticipantStatus(planId, userId, status);
     set((s) => ({
-      plans: s.plans.map((p) => p.id !== planId ? p : {
-        ...p,
-        participants: p.participants?.map((pp) => pp.user_id === userId ? { ...pp, status } : pp),
-      }),
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              participants: p.participants?.map((pp) =>
+                pp.user_id === userId ? { ...pp, status } : pp
+              ),
+            }
+      ),
     }));
   },
+
   apiRemoveParticipant: async (planId, userId) => {
     await plansApi.removeParticipant(planId, userId);
     set((s) => ({
-      plans: s.plans.map((p) => p.id !== planId ? p : {
-        ...p,
-        participants: (p.participants || []).filter((pp) => pp.user_id !== userId),
-      }),
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              participants: (p.participants || []).filter(
+                (pp) => pp.user_id !== userId
+              ),
+            }
+      ),
     }));
   },
+
   apiCancelPlan: async (planId) => {
     await plansApi.cancelPlan(planId);
     set((s) => ({
-      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'cancelled' as PlanLifecycle } : p),
+      plans: s.plans.map((p) =>
+        p.id === planId ? { ...p, lifecycle_state: 'cancelled' as PlanLifecycle } : p
+      ),
     }));
   },
+
   apiCompletePlan: async (planId) => {
     await plansApi.completePlan(planId);
     set((s) => ({
-      plans: s.plans.map((p) => p.id === planId ? { ...p, lifecycle_state: 'completed' as PlanLifecycle } : p),
+      plans: s.plans.map((p) =>
+        p.id === planId ? { ...p, lifecycle_state: 'completed' as PlanLifecycle } : p
+      ),
     }));
+  },
+
+  apiFinalize: async (planId, placeProposalId, timeProposalId) => {
+    const res = await plansApi.finalizePlan(planId, placeProposalId, timeProposalId);
+    set((s) => ({ plans: upsertPlan(s.plans, res.plan) }));
+  },
+
+  apiUnfinalize: async (planId) => {
+    const res = await plansApi.unfinalizePlan(planId);
+    set((s) => ({ plans: upsertPlan(s.plans, res.plan) }));
+  },
+
+  apiCreateProposal: async (planId, data) => {
+    const res = await plansApi.createProposal(planId, data);
+    const proposal = res.proposal;
+    set((s) => ({
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              proposals: [...(p.proposals || []), proposal],
+              place_status:
+                proposal.type === 'place' && p.place_status === 'undecided'
+                  ? 'proposed'
+                  : p.place_status,
+              time_status:
+                proposal.type === 'time' && p.time_status === 'undecided'
+                  ? 'proposed'
+                  : p.time_status,
+            }
+      ),
+      messages: {
+        ...s.messages,
+        [planId]: [
+          ...(s.messages[planId] || []),
+          {
+            id: `msg-prop-${proposal.id}`,
+            context_type: 'plan',
+            context_id: planId,
+            sender_id: proposal.proposer_id,
+            text: '',
+            type: 'proposal_card' as const,
+            reference_id: proposal.id,
+            created_at: proposal.created_at,
+            sender: undefined,
+          },
+        ],
+      },
+    }));
+  },
+
+  apiVote: async (planId, proposalId) => {
+    const prevPlans = get().plans;
+    const plan = prevPlans.find((p) => p.id === planId);
+    const proposal = plan?.proposals?.find((pr) => pr.id === proposalId);
+    const userId = proposal?.votes?.length;
+
+    set((s) => ({
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              proposals: p.proposals?.map((pr) =>
+                pr.id !== proposalId
+                  ? pr
+                  : {
+                      ...pr,
+                      votes: [
+                        ...(pr.votes || []),
+                        {
+                          id: `vote-opt-${Date.now()}`,
+                          proposal_id: proposalId,
+                          voter_id: '__optimistic__',
+                          created_at: new Date().toISOString(),
+                        },
+                      ],
+                    }
+              ),
+            }
+      ),
+    }));
+
+    try {
+      const res = await plansApi.voteOnProposal(planId, proposalId);
+      const vote = (res as { vote: { id: string; proposal_id: string; voter_id: string; created_at: string } }).vote;
+      set((s) => ({
+        plans: s.plans.map((p) =>
+          p.id !== planId
+            ? p
+            : {
+                ...p,
+                proposals: p.proposals?.map((pr) =>
+                  pr.id !== proposalId
+                    ? pr
+                    : {
+                        ...pr,
+                        votes: [
+                          ...(pr.votes || []).filter(
+                            (v) => v.voter_id !== '__optimistic__'
+                          ),
+                          vote,
+                        ],
+                      }
+                ),
+              }
+        ),
+      }));
+    } catch {
+      set({ plans: prevPlans });
+    }
+  },
+
+  apiUnvote: async (planId, proposalId) => {
+    const prevPlans = get().plans;
+    const plan = prevPlans.find((p) => p.id === planId);
+    const myVote = plan?.proposals
+      ?.find((pr) => pr.id === proposalId)
+      ?.votes?.find((v) => v.voter_id !== '__optimistic__');
+
+    set((s) => ({
+      plans: s.plans.map((p) =>
+        p.id !== planId
+          ? p
+          : {
+              ...p,
+              proposals: p.proposals?.map((pr) =>
+                pr.id !== proposalId
+                  ? pr
+                  : {
+                      ...pr,
+                      votes: (pr.votes || []).filter(
+                        (v) =>
+                          v.voter_id === '__optimistic__' ||
+                          v.id !== myVote?.id
+                      ),
+                    }
+              ),
+            }
+      ),
+    }));
+
+    try {
+      await plansApi.unvoteProposal(planId, proposalId);
+      set((s) => ({
+        plans: s.plans.map((p) =>
+          p.id !== planId
+            ? p
+            : {
+                ...p,
+                proposals: p.proposals?.map((pr) =>
+                  pr.id !== proposalId
+                    ? pr
+                    : {
+                        ...pr,
+                        votes: (pr.votes || []).filter(
+                          (v) => v.id !== myVote?.id
+                        ),
+                      }
+                ),
+              }
+        ),
+      }));
+    } catch {
+      set({ plans: prevPlans });
+    }
+  },
+
+  apiRepeat: async (planId) => {
+    try {
+      const res = await plansApi.repeatPlan(planId);
+      const newPlan = res.plan;
+      set((s) => ({ plans: [newPlan, ...s.plans] }));
+      return newPlan.id;
+    } catch {
+      return null;
+    }
+  },
+
+  apiFetchMessages: async (planId, before) => {
+    try {
+      const res = await plansApi.fetchMessages(planId, before);
+      const fetched = res.messages;
+      set((s) => {
+        const existing = s.messages[planId] || [];
+        const existingIds = new Set(existing.map((m) => m.id));
+        const merged = [...existing, ...fetched.filter((m) => !existingIds.has(m.id))];
+        merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
+        return { messages: { ...s.messages, [planId]: merged } };
+      });
+    } catch {}
+  },
+
+  apiSendMessage: async (planId, text) => {
+    try {
+      const res = await plansApi.sendMessage(planId, text);
+      const msg = res.message;
+      set((s) => ({
+        messages: {
+          ...s.messages,
+          [planId]: [...(s.messages[planId] || []), msg],
+        },
+      }));
+    } catch {}
+  },
+
+  apiFetchProposals: async (planId) => {
+    try {
+      const res = await plansApi.fetchProposals(planId);
+      set((s) => ({
+        plans: s.plans.map((p) =>
+          p.id !== planId ? p : { ...p, proposals: res.proposals }
+        ),
+      }));
+    } catch {}
+  },
+
+  apiInviteParticipant: async (planId, inviteeId) => {
+    try {
+      await plansApi.inviteParticipant(planId, inviteeId);
+      const plan = await plansApi.fetchPlan(planId);
+      set((s) => ({ plans: upsertPlan(s.plans, plan) }));
+    } catch {}
   },
 }));

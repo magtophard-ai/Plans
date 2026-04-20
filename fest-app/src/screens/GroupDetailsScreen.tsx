@@ -6,8 +6,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useGroupsStore } from '../stores/groupsStore';
 import { usePlansStore } from '../stores/plansStore';
 import { formatDateShort } from '../utils/dates';
-import { ACTIVITY_LABELS, type Plan, type PlanParticipant, type ActivityType } from '../types';
-import { mockUsers } from '../mocks';
+import { ACTIVITY_LABELS, type ActivityType } from '../types';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { PlansStackParamList } from '../navigation/types';
 
@@ -17,7 +16,7 @@ export const GroupDetailsScreen = ({ route, navigation }: Props) => {
   const { groupId } = route.params;
   const groups = useGroupsStore((s) => s.groups);
   const plans = usePlansStore((s) => s.plans);
-  const addPlan = usePlansStore((s) => s.addPlan);
+  const apiCreatePlan = usePlansStore((s) => s.apiCreatePlan);
   const user = useAuthStore((s) => s.user);
 
   const group = groups.find((g) => g.id === groupId);
@@ -31,46 +30,17 @@ export const GroupDetailsScreen = ({ route, navigation }: Props) => {
   const activePlans = groupPlans.filter((p) => p.lifecycle_state === 'active' || p.lifecycle_state === 'finalized');
   const pastPlans = groupPlans.filter((p) => p.lifecycle_state === 'completed');
 
-  const handleCreatePlanWithGroup = () => {
+  const handleCreatePlanWithGroup = async () => {
     if (!user) return;
-    const participants: PlanParticipant[] = (group.members ?? [])
-      .filter((m) => m.user_id !== user.id)
-      .map((m) => ({
-        id: `pp-${Date.now()}-${m.user_id}`,
-        plan_id: '',
-        user_id: m.user_id,
-        status: 'invited' as const,
-        joined_at: new Date().toISOString(),
-        user: m.user,
-      }));
-
-    const plan: Plan = {
-      id: `plan-${Date.now()}`,
-      creator_id: user.id,
-      title: `План: ${group.name}`,
-      activity_type: 'other' as ActivityType,
-      linked_event_id: null,
-      place_status: 'undecided',
-      time_status: 'undecided',
-      confirmed_place_text: null,
-      confirmed_place_lat: null,
-      confirmed_place_lng: null,
-      confirmed_time: null,
-      lifecycle_state: 'active',
-      pre_meet_enabled: false,
-      pre_meet_place_text: null,
-      pre_meet_time: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      participants: [
-        { id: `pp-me-${Date.now()}`, plan_id: '', user_id: user.id, status: 'going' as const, joined_at: new Date().toISOString(), user },
-        ...participants,
-      ],
-      proposals: [],
-    };
-
-    addPlan(plan);
-    navigation.replace('PlanDetails', { planId: plan.id });
+    const memberIds = (group.members ?? []).filter((m) => m.user_id !== user.id).map((m) => m.user_id);
+    try {
+      const planId = await apiCreatePlan({
+        title: `План: ${group.name}`,
+        activity_type: 'other',
+        participant_ids: memberIds,
+      });
+      if (planId) navigation.replace('PlanDetails', { planId });
+    } catch {}
   };
 
   return (

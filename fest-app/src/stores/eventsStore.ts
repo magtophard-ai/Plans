@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { Event, EventCategory } from '../types';
-import { mockEvents } from '../mocks';
 import * as eventsApi from '../api/events';
 
 interface EventsState {
@@ -16,7 +15,7 @@ interface EventsState {
 }
 
 export const useEventsStore = create<EventsState>((set, get) => ({
-  events: mockEvents,
+  events: [],
   interestedIds: new Set<string>(),
   savedIds: new Set<string>(),
   categoryFilter: null,

@@ -1,6 +1,6 @@
 # Screen-to-Endpoint Mapping — MVP
 
-Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
+Source of truth: `contracts/mvp/api/openapi.yaml`
 
 ---
 
@@ -46,8 +46,10 @@ Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
 
 | Action | Method | Endpoint | Optimistic | Server-confirmed |
 |---|---|---|---|---|
-| Search events | GET | /search/events?q=...&category=... | — | — |
+| Search events | GET | /search/events?q=...&category=...&date_from=...&date_to=... | — | — |
 | Navigate to event details | — | — | — | — |
+
+Date filters (today/week/weekend) are converted to `date_from`/`date_to` query params.
 
 ---
 
@@ -65,7 +67,7 @@ Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
 
 | Action | Method | Endpoint | Optimistic | Server-confirmed |
 |---|---|---|---|---|
-| Load friends | GET | /users/friends?status=accepted | — | — |
+| Load friends | **MOCK-ONLY** — uses `mockUsers` (no GET /users/friends yet) | — | — | — |
 | Load groups | GET | /groups | — | — |
 | Create plan | POST | /plans | — | yes (atomic: plan + participants + invitations + notifications + system message) |
 
@@ -78,7 +80,7 @@ Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
 | Action | Method | Endpoint | Optimistic | Server-confirmed |
 |---|---|---|---|---|
 | Load event (for prefill) | GET | /events/{id} | — | — |
-| Load friends | GET | /users/friends?status=accepted | — | — |
+| Load friends | **MOCK-ONLY** — uses `mockUsers` (no GET /users/friends yet) | — | — | — |
 | Load groups | GET | /groups | — | — |
 | Create plan with linked event | POST | /plans (with linked_event_id) | — | yes |
 
@@ -92,7 +94,7 @@ Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
 | Load past plans | GET | /plans?lifecycle=completed&participant=me | — | — |
 | Load invitations | GET | /invitations?status=pending | — | — |
 | Load groups | GET | /groups | — | — |
-| Accept invitation | PATCH | /invitations/{id} {status: accepted} | — | yes (side-effect: creates participant, system message) |
+| Accept invitation | PATCH | /invitations/{id} {status: accepted} | — | yes (side-effect: creates participant + system message server-side; frontend re-fetches plan) |
 | Decline invitation | PATCH | /invitations/{id} {status: declined} | — | yes |
 | Open plan | navigate | PlanDetails with planId | — | — |
 | Open group | navigate | GroupDetails with groupId | — | — |
@@ -105,15 +107,17 @@ Source of truth: `contracts/mvp/api/openapi.yaml`, `docs/backend-contract.md`
 |---|---|---|---|---|
 | Load plan | GET | /plans/{id} | — | — |
 | Update own status | PATCH | /plans/{id}/participants/{uid} {status: going/thinking/cant} | — | yes |
+| Invite participant | POST | /plans/{id}/participants {user_id} | — | yes (side-effect: creates invitation + notification) |
 | Propose place/time | POST | /plans/{id}/proposals | — | yes (side-effect: creates proposal_card message, notifications) |
 | Vote on proposal | POST | /plans/{id}/proposals/{pid}/vote | yes (rollback on 409) | — |
 | Unvote | DELETE | /plans/{id}/proposals/{pid}/vote | yes | — |
 | Finalize plan | POST | /plans/{id}/finalize {place_proposal_id, time_proposal_id} | — | yes (side-effect: supersedes losers, notifications) |
 | Unfinalize plan | POST | /plans/{id}/unfinalize | — | yes (side-effect: reopens proposals, notifications) |
 | Cancel plan | POST | /plans/{id}/cancel | — | yes |
+| Complete plan | POST | /plans/{id}/complete | — | yes |
 | Repeat plan | POST | /plans/{id}/repeat | — | yes (side-effect: creates new plan, invitations, notifications) |
 
-Creator-only actions: finalize, unfinalize, cancel. Server must verify `creator_id === auth.uid`.
+Creator-only actions: finalize, unfinalize, cancel, invite participant. Server must verify `creator_id === auth.uid`.
 
 ---
 
@@ -148,6 +152,8 @@ Creator-only: add/remove members. Server must verify `groups.creator_id === auth
 | Mark one read | PATCH | /notifications/{id}/read | — | — |
 | Mark all read | PATCH | /notifications/read-all | — | — |
 
+Notifications are created server-side only. No client-side notification creation.
+
 ---
 
 ## ProfileScreen
@@ -157,4 +163,5 @@ Creator-only: add/remove members. Server must verify `groups.creator_id === auth
 | Load profile | GET | /users/me | — | — |
 | Edit profile | PATCH | /users/me {name, username, avatar_url} | — | yes |
 | Load saved events | GET | /events (client filters by saved IDs, or server endpoint with ?saved=true) | — | — |
+| Load friends | **MOCK-ONLY** — uses `mockUsers` (no GET /users/friends yet) | — | — | — |
 | Logout | client-side | discard tokens | — | — |
