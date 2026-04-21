@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, Text, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import {
+  View,
+  TextInput,
+  Text,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withRepeat,
-  withTiming,
   withDelay,
   interpolate,
-  interpolateColor,
   Extrapolation,
 } from 'react-native-reanimated';
 import { theme } from '../theme';
 import { useAuthStore } from '../stores/authStore';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { AnimatedPressable } from '../fest-animations/AnimatedPressable';
-import { SpringFadeIn } from '../fest-animations/SpringFadeIn';
+import { Aurora, FadeIn, Pressable, SplitText, springs } from '../motion';
 
 export const AuthScreen = () => {
   const [phoneDigits, setPhoneDigits] = useState('7');
@@ -23,53 +27,10 @@ export const AuthScreen = () => {
   const [otpSent, setOtpSent] = useState(false);
   const { sendOtp, verifyOtp, loading, error, clearError } = useAuthStore();
 
-  // Ambient blob animation (drives both hue and position)
-  const ambient = useSharedValue(0);
-  useEffect(() => {
-    ambient.value = withRepeat(withTiming(1, { duration: 7000 }), -1, true);
-  }, []);
-
-  // Entry animation for the title
-  const titleProgress = useSharedValue(0);
-  useEffect(() => {
-    titleProgress.value = withDelay(120, withSpring(1, { damping: 16, stiffness: 140, mass: 0.8 }));
-  }, []);
-
-  // Form slide on OTP stage change
   const formStage = useSharedValue(0);
   useEffect(() => {
-    formStage.value = withSpring(otpSent ? 1 : 0, { damping: 18, stiffness: 220 });
+    formStage.value = withSpring(otpSent ? 1 : 0, springs.smooth);
   }, [otpSent]);
-
-  const blobAStyle = useAnimatedStyle(() => {
-    const translateX = interpolate(ambient.value, [0, 1], [-30, 30], Extrapolation.CLAMP);
-    const translateY = interpolate(ambient.value, [0, 1], [-20, 10], Extrapolation.CLAMP);
-    const scale = interpolate(ambient.value, [0, 1], [1, 1.15], Extrapolation.CLAMP);
-    const color = interpolateColor(
-      ambient.value,
-      [0, 0.5, 1],
-      [theme.colors.primary, theme.colors.accent, theme.colors.primaryLight],
-    );
-    return { transform: [{ translateX }, { translateY }, { scale }], backgroundColor: color };
-  });
-
-  const blobBStyle = useAnimatedStyle(() => {
-    const translateX = interpolate(ambient.value, [0, 1], [40, -30], Extrapolation.CLAMP);
-    const translateY = interpolate(ambient.value, [0, 1], [20, -20], Extrapolation.CLAMP);
-    const scale = interpolate(ambient.value, [0, 1], [1.1, 0.95], Extrapolation.CLAMP);
-    const color = interpolateColor(
-      ambient.value,
-      [0, 0.5, 1],
-      [theme.colors.accentLight, theme.colors.primaryLight, theme.colors.accent],
-    );
-    return { transform: [{ translateX }, { translateY }, { scale }], backgroundColor: color };
-  });
-
-  const titleStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(titleProgress.value, [0, 1], [24, 0], Extrapolation.CLAMP);
-    const scale = interpolate(titleProgress.value, [0, 1], [0.92, 1], Extrapolation.CLAMP);
-    return { opacity: titleProgress.value, transform: [{ translateY }, { scale }] };
-  });
 
   const phoneCardStyle = useAnimatedStyle(() => {
     const translateX = interpolate(formStage.value, [0, 1], [0, -40], Extrapolation.CLAMP);
@@ -82,6 +43,23 @@ export const AuthScreen = () => {
     const opacity = interpolate(formStage.value, [0, 0.5, 1], [0, 0, 1], Extrapolation.CLAMP);
     return { transform: [{ translateX }], opacity };
   });
+
+  // Ambient "breathing" dot next to the brand mark
+  const pulse = useSharedValue(0);
+  useEffect(() => {
+    const loop = () => {
+      pulse.value = withSpring(1, { ...springs.smooth, damping: 24 }, () => {
+        pulse.value = withDelay(400, withSpring(0, { ...springs.smooth, damping: 24 }));
+      });
+    };
+    loop();
+    const t = setInterval(loop, 2400);
+    return () => clearInterval(t);
+  }, []);
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(pulse.value, [0, 1], [1, 1.4]) }],
+    opacity: interpolate(pulse.value, [0, 1], [0.9, 0.4]),
+  }));
 
   const formatPhone = (digits: string) => {
     const local = digits.slice(1, 11);
@@ -134,244 +112,243 @@ export const AuthScreen = () => {
   };
 
   return (
-    <ScreenContainer>
-      <View style={s.backdrop} pointerEvents="none">
-        <Animated.View style={[s.blob, s.blobA, blobAStyle]} />
-        <Animated.View style={[s.blob, s.blobB, blobBStyle]} />
-      </View>
+    <View style={s.root}>
+      <Aurora intensity="strong" />
+      <ScreenContainer>
+        <KeyboardAvoidingView
+          style={s.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <FadeIn delay={60} direction="down" distance={10} style={s.brandRow}>
+            <Text style={s.brandMark}>FEST</Text>
+            <Animated.View style={[s.brandDot, dotStyle]} />
+          </FadeIn>
 
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Animated.View style={[s.titleWrap, titleStyle]}>
-          <Text style={s.title}>Планы?</Text>
-          <Text style={s.titleAccent}>Давайте соберёмся</Text>
-        </Animated.View>
+          <View style={s.heroWrap}>
+            <SplitText text="Планы?" style={s.hero} delay={180} step={60} distance={32} />
+            <FadeIn delay={720} direction="up" distance={10}>
+              <Text style={s.heroSub}>Собирайтесь. Быстро. Красиво.</Text>
+            </FadeIn>
+          </View>
 
-        <SpringFadeIn delay={260} direction="up" distance={18}>
-          <Text style={s.subtitle}>
-            {otpSent ? `Код отправлен на ${formattedPhone}` : 'Войдите по номеру телефона'}
-          </Text>
-        </SpringFadeIn>
+          <FadeIn delay={900} direction="up" distance={14}>
+            <Text style={s.subtitle}>
+              {otpSent ? `Код отправлен на ${formattedPhone}` : 'Войдите по номеру телефона'}
+            </Text>
+          </FadeIn>
 
-        {error ? (
-          <SpringFadeIn delay={0} direction="down" distance={8}>
-            <Text style={s.errorText}>{error}</Text>
-          </SpringFadeIn>
-        ) : null}
+          {error ? (
+            <FadeIn delay={0} direction="down" distance={6}>
+              <Text style={s.errorText}>{error}</Text>
+            </FadeIn>
+          ) : null}
 
-        <View style={s.formStage}>
-          {!otpSent ? (
-            <Animated.View style={[s.formCard, phoneCardStyle]}>
-              <View style={s.inputWrap}>
-                <Text style={s.inputLabel}>Телефон</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="+7 (941) 223 22 22"
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={formattedPhone}
-                  onChangeText={(value) => setPhoneDigits(normalizePhoneInput(value))}
-                  keyboardType="phone-pad"
-                  autoFocus
-                  editable={!loading}
-                />
-              </View>
-              <AnimatedPressable
-                style={[s.primaryBtn, (!isPhoneComplete || loading) && s.primaryBtnDisabled]}
-                onPress={handleSendOtp}
-                disabled={loading || !isPhoneComplete}
-                activeScale={0.97}
-              >
-                {loading ? (
-                  <ActivityIndicator color={theme.colors.textInverse} />
-                ) : (
-                  <Text style={s.primaryBtnText}>Получить код</Text>
-                )}
-              </AnimatedPressable>
-              <Text style={s.hint}>Мы отправим SMS с кодом подтверждения</Text>
-            </Animated.View>
-          ) : (
-            <Animated.View style={[s.formCard, codeCardStyle]}>
-              <View style={s.inputWrap}>
-                <Text style={s.inputLabel}>Код из SMS</Text>
-                <TextInput
-                  style={[s.input, s.inputOtp]}
-                  placeholder="1111"
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={code}
-                  onChangeText={setCode}
-                  keyboardType="number-pad"
-                  autoFocus
-                  editable={!loading}
-                  maxLength={6}
-                />
-              </View>
-              <AnimatedPressable
-                style={[s.primaryBtn, (!isCodeComplete || loading) && s.primaryBtnDisabled]}
-                onPress={handleVerify}
-                disabled={loading || !isCodeComplete}
-                activeScale={0.97}
-              >
-                {loading ? (
-                  <ActivityIndicator color={theme.colors.textInverse} />
-                ) : (
-                  <Text style={s.primaryBtnText}>Войти</Text>
-                )}
-              </AnimatedPressable>
-              <AnimatedPressable style={s.secondaryBtn} onPress={handleBack} activeScale={0.98}>
-                <Text style={s.secondaryBtnText}>Изменить номер</Text>
-              </AnimatedPressable>
-            </Animated.View>
-          )}
-        </View>
-      </KeyboardAvoidingView>
-    </ScreenContainer>
+          <View style={s.formStage}>
+            {!otpSent ? (
+              <Animated.View style={[s.formCard, phoneCardStyle]}>
+                <View style={s.inputWrap}>
+                  <Text style={s.inputLabel}>Телефон</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="+7 (941) 223 22 22"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    value={formattedPhone}
+                    onChangeText={(value) => setPhoneDigits(normalizePhoneInput(value))}
+                    keyboardType="phone-pad"
+                    autoFocus
+                    editable={!loading}
+                  />
+                </View>
+                <Pressable
+                  style={[s.primaryBtn, (!isPhoneComplete || loading) && s.primaryBtnDisabled]}
+                  onPress={handleSendOtp}
+                  disabled={loading || !isPhoneComplete}
+                  activeScale={0.97}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={theme.colors.textInverse} />
+                  ) : (
+                    <Text style={s.primaryBtnText}>Получить код</Text>
+                  )}
+                </Pressable>
+                <Text style={s.hint}>Мы отправим SMS с кодом подтверждения</Text>
+              </Animated.View>
+            ) : (
+              <Animated.View style={[s.formCard, codeCardStyle]}>
+                <View style={s.inputWrap}>
+                  <Text style={s.inputLabel}>Код из SMS</Text>
+                  <TextInput
+                    style={[s.input, s.inputOtp]}
+                    placeholder="1111"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    value={code}
+                    onChangeText={setCode}
+                    keyboardType="number-pad"
+                    autoFocus
+                    editable={!loading}
+                    maxLength={6}
+                  />
+                </View>
+                <Pressable
+                  style={[s.primaryBtn, (!isCodeComplete || loading) && s.primaryBtnDisabled]}
+                  onPress={handleVerify}
+                  disabled={loading || !isCodeComplete}
+                  activeScale={0.97}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={theme.colors.textInverse} />
+                  ) : (
+                    <Text style={s.primaryBtnText}>Войти</Text>
+                  )}
+                </Pressable>
+                <Pressable style={s.secondaryBtn} onPress={handleBack} activeScale={0.98}>
+                  <Text style={s.secondaryBtnText}>Изменить номер</Text>
+                </Pressable>
+              </Animated.View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </ScreenContainer>
+    </View>
   );
 };
 
 const s = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
+  root: {
+    flex: 1,
     backgroundColor: theme.colors.background,
-    overflow: 'hidden',
-  },
-  blob: {
-    position: 'absolute',
-    width: 420,
-    height: 420,
-    borderRadius: 9999,
-    opacity: 0.22,
-  },
-  blobA: {
-    top: -140,
-    left: -120,
-  },
-  blobB: {
-    bottom: -160,
-    right: -140,
-    opacity: 0.18,
   },
   container: {
     flex: 1,
     justifyContent: 'center',
     padding: theme.spacing.xxl,
-    ...Platform.select({ web: { maxWidth: 440, alignSelf: 'center', width: '100%' } }),
+    ...Platform.select({ web: { maxWidth: 460, alignSelf: 'center', width: '100%' } }),
   },
-  titleWrap: {
+  brandRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.xl,
   },
-  title: {
-    ...theme.typography.h1,
-    fontSize: 44,
-    lineHeight: 52,
+  brandMark: {
+    fontSize: 13,
     fontWeight: '800',
-    color: theme.colors.primary,
-    textAlign: 'center',
-    letterSpacing: -1,
-    textShadowColor: theme.colors.primaryLight + '66',
-    textShadowOffset: { width: 0, height: 6 },
-    textShadowRadius: 20,
+    letterSpacing: 6,
+    color: theme.colors.primaryDark,
   },
-  titleAccent: {
-    ...theme.typography.caption,
-    color: theme.colors.accent,
-    fontWeight: '700',
-    letterSpacing: 4,
-    textTransform: 'uppercase',
-    marginTop: theme.spacing.xs,
+  brandDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 8,
+    backgroundColor: theme.colors.accent,
+  },
+  heroWrap: {
+    marginBottom: theme.spacing.xl,
+  },
+  hero: {
+    fontSize: Platform.OS === 'web' ? 76 : 60,
+    lineHeight: Platform.OS === 'web' ? 82 : 66,
+    fontWeight: '900',
+    color: theme.colors.primaryDark,
+    letterSpacing: -2.5,
+  },
+  heroSub: {
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+    letterSpacing: 0.2,
   },
   subtitle: {
     ...theme.typography.body,
     color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: theme.spacing.xxl,
+    marginBottom: theme.spacing.lg,
   },
   errorText: {
     ...theme.typography.caption,
     color: theme.colors.error,
-    textAlign: 'center',
-    marginBottom: theme.spacing.md,
-    backgroundColor: theme.colors.error + '18',
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    overflow: 'hidden',
+    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
   },
   formStage: {
-    minHeight: 260,
+    minHeight: 240,
   },
   formCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.xl,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderRadius: theme.borderRadius.xxl,
     padding: theme.spacing.xl,
     borderWidth: 1,
-    borderColor: theme.colors.borderLight,
-    ...theme.shadows.lg,
-    shadowColor: theme.colors.primary,
-    shadowOpacity: 0.08,
+    borderColor: 'rgba(255,255,255,0.9)',
+    ...Platform.select({
+      web: {
+        backdropFilter: 'blur(18px) saturate(140%)',
+      } as any,
+      default: {
+        ...theme.shadows.md,
+      },
+    }),
   },
   inputWrap: {
     marginBottom: theme.spacing.lg,
   },
   inputLabel: {
-    ...theme.typography.captionBold,
+    ...theme.typography.caption,
     color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
+    fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+    marginBottom: theme.spacing.xs,
   },
   input: {
-    backgroundColor: theme.colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
-    fontSize: 17,
+    ...theme.typography.h3,
     color: theme.colors.textPrimary,
-    ...Platform.select({ web: { padding: theme.spacing.md, outlineStyle: 'none' as unknown as undefined } }),
+    fontWeight: '600',
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primaryLight,
   },
   inputOtp: {
-    textAlign: 'center',
-    fontSize: 28,
-    letterSpacing: 12,
+    letterSpacing: 10,
+    fontSize: 26,
     fontWeight: '700',
+    textAlign: 'center',
   },
   primaryBtn: {
     backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.full,
+    paddingVertical: theme.spacing.lg,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
     elevation: 6,
-    ...Platform.select({ web: { padding: theme.spacing.md } }),
   },
   primaryBtnDisabled: {
-    opacity: 0.55,
-    shadowOpacity: 0.1,
+    backgroundColor: theme.colors.primaryLight,
+    shadowOpacity: 0,
   },
   primaryBtnText: {
     color: theme.colors.textInverse,
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     letterSpacing: 0.3,
-    ...Platform.select({ web: { fontSize: 16 } }),
-  },
-  secondaryBtn: {
-    marginTop: theme.spacing.md,
-    alignItems: 'center',
-    paddingVertical: theme.spacing.sm,
-  },
-  secondaryBtnText: {
-    ...theme.typography.caption,
-    color: theme.colors.primary,
-    fontWeight: '600',
   },
   hint: {
-    ...theme.typography.small,
+    ...theme.typography.caption,
     color: theme.colors.textTertiary,
     textAlign: 'center',
     marginTop: theme.spacing.md,
+  },
+  secondaryBtn: {
+    alignItems: 'center',
+    paddingVertical: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  secondaryBtnText: {
+    ...theme.typography.body,
+    color: theme.colors.primary,
+    fontWeight: '700',
   },
 });

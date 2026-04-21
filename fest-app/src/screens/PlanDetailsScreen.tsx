@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, Modal, Platform, Alert, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate, Extrapolation } from 'react-native-reanimated';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { theme } from '../theme';
 import { usePlansStore } from '../stores/plansStore';
@@ -12,10 +11,7 @@ import { subscribe, unsubscribe } from '../api/ws';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { PlansStackParamList } from '../navigation/types';
-import { AnimatedPressable } from '../fest-animations/AnimatedPressable';
-import { AnimatedBadge } from '../fest-animations/AnimatedBadge';
-import { AnimatedConfetti } from '../fest-animations/AnimatedConfetti';
-import { SpringFadeIn } from '../fest-animations/SpringFadeIn';
+import { Aurora, FadeIn, Pressable, Badge, TabIndicator, Tab, Confetti } from '../motion';
 
 type Props = NativeStackScreenProps<PlansStackParamList, 'PlanDetails'>;
 
@@ -53,8 +49,8 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
 
   const plan = plans.find((p) => p.id === planId);
   if (!plan || !user) {
-    if (planLoading) return <ScreenContainer><View style={s.inner}><ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /></View></ScreenContainer>;
-    return <ScreenContainer><View style={s.inner}><EmptyState text={planError || 'План не найден'} /></View></ScreenContainer>;
+    if (planLoading) return <View style={s.root}><Aurora /><ScreenContainer><View style={s.inner}><ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /></View></ScreenContainer></View>;
+    return <View style={s.root}><Aurora /><ScreenContainer><View style={s.inner}><EmptyState text={planError || 'План не найден'} /></View></ScreenContainer></View>;
   }
 
   const isCreator = plan.creator_id === user.id;
@@ -106,22 +102,27 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const inviteCandidates = friends.filter((friend) => !participantUserIds.has(friend.id));
 
   return (
-    <ScreenContainer>
+    <View style={s.root}>
+      <Aurora />
+      <ScreenContainer>
       <View style={s.inner}>
-          <AnimatedPressable style={s.backBtn} onPress={() => navigation.goBack()} activeScale={0.92} hitSlop={12}>
+          <Pressable style={s.backBtn} onPress={() => navigation.goBack()} activeScale={0.92} hitSlop={12}>
             <Text style={s.backText}>← Назад</Text>
-          </AnimatedPressable>
+          </Pressable>
           {planError && <Text style={s.errorBanner}>{planError}</Text>}
-        <SpringFadeIn delay={60} direction="down" distance={12}>
-          <View style={s.headerRow}>
+        <FadeIn delay={60} direction="down" distance={14}>
+          <View style={s.heroBlock}>
+            <Text style={s.eyebrow}>{ACTIVITY_LABELS[plan.activity_type]}</Text>
             <Text style={s.title}>{plan.title}</Text>
-            <Text style={s.activity}>{ACTIVITY_LABELS[plan.activity_type]}</Text>
+            <Text style={s.heroMeta}>
+              {plan.participants?.length ?? 0} участников · {plan.lifecycle_state === 'finalized' ? '✓ Подтверждён' : plan.lifecycle_state === 'completed' ? 'Завершён' : 'Активный'}
+            </Text>
           </View>
-        </SpringFadeIn>
+        </FadeIn>
 
-        <SpringFadeIn delay={140} direction="up" distance={10}>
+        <FadeIn delay={140} direction="up" distance={10}>
           <AnimatedTabBar tab={tab} onChange={setTab} />
-        </SpringFadeIn>
+        </FadeIn>
 
         {tab === 'details' ? (
           <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={apiVote} onUnvote={apiUnvote} onFinalize={async (id, pId, tId) => { await apiFinalize(id, pId, tId); setConfettiTrigger(true); }} onUnfinalize={apiUnfinalize} onCancel={apiCancelPlan} onComplete={apiCompletePlan} onAddProposal={apiCreateProposal} onRepeat={handleRepeat} repeating={repeating} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} />
@@ -129,7 +130,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
           <ChatTab messages={planMessages} input={chatInput} setInput={setChatInput} onSend={handleSend} sending={sending} planId={planId} onVote={apiVote} onUnvote={apiUnvote} userId={user.id} />
         )}
 
-        <AnimatedConfetti trigger={confettiTrigger} onComplete={() => setConfettiTrigger(false)} particleCount={40} />
+        <Confetti trigger={confettiTrigger} pieces={40} />
 
         <Modal visible={showInviteModal} transparent animationType="slide" onRequestClose={() => setShowInviteModal(false)}>
           <View style={s.modalOverlay}>
@@ -164,30 +165,38 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
           </View>
         </Modal>
       </View>
-    </ScreenContainer>
+      </ScreenContainer>
+    </View>
   );
 };
 
 const AnimatedTabBar = ({ tab, onChange }: { tab: 'details' | 'chat'; onChange: (t: 'details' | 'chat') => void }) => {
-  const progress = useSharedValue(tab === 'details' ? 0 : 1);
   const [barWidth, setBarWidth] = React.useState(0);
-  React.useEffect(() => {
-    progress.value = withSpring(tab === 'details' ? 0 : 1, { damping: 18, stiffness: 220, mass: 0.7 });
-  }, [tab]);
-  const indicatorStyle = useAnimatedStyle(() => {
-    const half = (barWidth - 8) / 2;
-    const translateX = interpolate(progress.value, [0, 1], [0, half], Extrapolation.CLAMP);
-    return { transform: [{ translateX }], width: half };
-  });
+  const activeIndex = tab === 'details' ? 0 : 1;
   return (
-    <View style={s.tabRow} onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}>
-      {barWidth > 0 ? <Animated.View pointerEvents="none" style={[s.tabIndicator, indicatorStyle]} /> : null}
-      <AnimatedPressable style={s.tab} onPress={() => onChange('details')} activeScale={0.97}>
-        <Text style={[s.tabText, tab === 'details' && s.tabTextActive]}>Детали</Text>
-      </AnimatedPressable>
-      <AnimatedPressable style={s.tab} onPress={() => onChange('chat')} activeScale={0.97}>
-        <Text style={[s.tabText, tab === 'chat' && s.tabTextActive]}>Чат</Text>
-      </AnimatedPressable>
+    <View
+      style={s.tabRow}
+      onLayout={(e) => setBarWidth(e.nativeEvent.layout.width - 8)}
+    >
+      <View style={s.tabsInner}>
+        <TabIndicator
+          count={2}
+          activeIndex={activeIndex}
+          containerWidth={barWidth}
+          color={theme.colors.primary}
+          style={s.tabIndicator}
+        />
+        <Pressable style={s.tab} onPress={() => onChange('details')} activeScale={0.97}>
+          <Tab active={tab === 'details'}>
+            <Text style={[s.tabText, tab === 'details' && s.tabTextActive]}>Детали</Text>
+          </Tab>
+        </Pressable>
+        <Pressable style={s.tab} onPress={() => onChange('chat')} activeScale={0.97}>
+          <Tab active={tab === 'chat'}>
+            <Text style={[s.tabText, tab === 'chat' && s.tabTextActive]}>Чат</Text>
+          </Tab>
+        </Pressable>
+      </View>
     </View>
   );
 };
@@ -264,18 +273,20 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
             </TouchableOpacity>
           )}
         </View>
-        {plan.participants?.map((p) => (
-          <View key={p.id} style={s.participantRow}>
-            <Text style={s.participantName}>{p.user?.name ?? '???'}{p.user_id === plan.creator_id ? ' (создатель)' : ''}</Text>
-            <View style={s.participantRight}>
-              <AnimatedBadge label={STATUS_LABELS[p.status]} color={STATUS_COLORS[p.status]} pulse={p.status === 'going'} />
-              {isCreator && p.user_id !== plan.creator_id && onRemove && (
-                <AnimatedPressable onPress={() => onRemove(p.user_id)} style={s.removeBtn} activeScale={0.85} hitSlop={8}>
-                  <Text style={s.removeBtnText}>✕</Text>
-                </AnimatedPressable>
-              )}
+        {plan.participants?.map((p, i) => (
+          <FadeIn key={p.id} delay={i * 40} direction="up" distance={8}>
+            <View style={s.participantRow}>
+              <Text style={s.participantName}>{p.user?.name ?? '???'}{p.user_id === plan.creator_id ? ' (создатель)' : ''}</Text>
+              <View style={s.participantRight}>
+                <Badge label={STATUS_LABELS[p.status]} color={STATUS_COLORS[p.status]} pulse={p.status === 'going'} />
+                {isCreator && p.user_id !== plan.creator_id && onRemove && (
+                  <Pressable onPress={() => onRemove(p.user_id)} style={s.removeBtn} activeScale={0.85} hitSlop={8}>
+                    <Text style={s.removeBtnText}>✕</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-          </View>
+          </FadeIn>
         ))}
         {onLeave && !isCompleted && !isCancelled && (
           <TouchableOpacity style={s.leaveBtn} onPress={onLeave}>
@@ -289,9 +300,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
             <Text style={s.sectionTitle}>Ваш статус</Text>
             <View style={s.statusRow}>
               {statusBtns.map((btn) => (
-                <AnimatedPressable key={btn.key} style={[s.statusBtn, myStatus === btn.key && { backgroundColor: STATUS_COLORS[btn.key] + '22', borderColor: STATUS_COLORS[btn.key] }]} onPress={() => onSetStatus(btn.key)} activeScale={0.94}>
+                <Pressable key={btn.key} style={[s.statusBtn, myStatus === btn.key && { backgroundColor: STATUS_COLORS[btn.key] + '22', borderColor: STATUS_COLORS[btn.key] }]} onPress={() => onSetStatus(btn.key)} activeScale={0.94}>
                   <Text style={[s.statusBtnText, myStatus === btn.key && { color: STATUS_COLORS[btn.key], fontWeight: '700' }]}>{btn.label}</Text>
-                </AnimatedPressable>
+                </Pressable>
               ))}
             </View>
           </>
@@ -348,23 +359,23 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         {isCreator && !isCompleted && !isCancelled && (
           <View style={s.divider}>
             {plan.lifecycle_state === 'active' && plan.place_status === 'confirmed' && plan.time_status === 'confirmed' && (
-              <AnimatedPressable style={s.finalizeBtn} onPress={() => onFinalize(plan.id)} activeScale={0.96}>
+              <Pressable style={s.finalizeBtn} onPress={() => onFinalize(plan.id)} activeScale={0.96}>
                 <Text style={s.finalizeBtnText}>✨ Подтвердить план</Text>
-              </AnimatedPressable>
+              </Pressable>
             )}
             {plan.lifecycle_state === 'finalized' && (
-              <AnimatedPressable style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)} activeScale={0.96}>
+              <Pressable style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)} activeScale={0.96}>
                 <Text style={s.unfinalizeBtnText}>Отменить подтверждение</Text>
-              </AnimatedPressable>
+              </Pressable>
             )}
             {plan.lifecycle_state === 'active' && !(plan.place_status === 'confirmed' && plan.time_status === 'confirmed') && (
-              <AnimatedPressable style={s.completeBtn} onPress={() => onComplete(plan.id)} activeScale={0.96}>
+              <Pressable style={s.completeBtn} onPress={() => onComplete(plan.id)} activeScale={0.96}>
                 <Text style={s.completeBtnText}>Завершить план</Text>
-              </AnimatedPressable>
+              </Pressable>
             )}
-            <AnimatedPressable style={s.cancelBtn} onPress={() => onCancel(plan.id)} activeScale={0.96}>
+            <Pressable style={s.cancelBtn} onPress={() => onCancel(plan.id)} activeScale={0.96}>
               <Text style={s.cancelBtnText}>Отменить план</Text>
-            </AnimatedPressable>
+            </Pressable>
           </View>
         )}
 
@@ -375,9 +386,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         )}
 
         {isCompleted && (
-          <AnimatedPressable style={[s.repeatBtn, repeating && s.btnDisabled]} onPress={onRepeat} disabled={repeating} activeScale={0.96}>
+          <Pressable style={[s.repeatBtn, repeating && s.btnDisabled]} onPress={onRepeat} disabled={repeating} activeScale={0.96}>
             <Text style={s.repeatBtnText}>{repeating ? '...' : '↻ Повторить'}</Text>
-          </AnimatedPressable>
+          </Pressable>
         )}
       </ScrollView>
 
@@ -492,14 +503,17 @@ const ChatTab = ({ messages: msgs, input, setInput, onSend, sending, planId, onV
 };
 
 const s = StyleSheet.create({
-  inner: { flex: 1, backgroundColor: theme.colors.background },
+  root: { flex: 1, backgroundColor: theme.colors.background },
+  inner: { flex: 1 },
   backBtn: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: theme.spacing.xs, ...Platform.select({ web: { paddingTop: theme.spacing.lg } }) },
-  backText: { ...theme.typography.body, color: theme.colors.primary },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
-  title: { ...theme.typography.h3, color: theme.colors.textPrimary, flex: 1 },
-  activity: { ...theme.typography.caption, color: theme.colors.primary, backgroundColor: theme.colors.primaryLight + '22', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full },
-  tabRow: { flexDirection: 'row', marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md, backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.borderRadius.full, padding: 4, position: 'relative' },
-  tabIndicator: { position: 'absolute', top: 4, bottom: 4, left: 4, backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.full, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 3 },
+  backText: { ...theme.typography.body, color: theme.colors.primary, fontWeight: '700' },
+  heroBlock: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.md, paddingTop: theme.spacing.xs },
+  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 4, color: theme.colors.accent, textTransform: 'uppercase', marginBottom: 6 },
+  title: { fontSize: Platform.OS === 'web' ? 36 : 30, lineHeight: Platform.OS === 'web' ? 40 : 34, fontWeight: '900', color: theme.colors.primaryDark, letterSpacing: -1.2, marginBottom: 6 },
+  heroMeta: { fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary, letterSpacing: 0.1 },
+  tabRow: { marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: theme.borderRadius.full, padding: 4, borderWidth: 1, borderColor: 'rgba(108,92,231,0.15)', ...Platform.select({ web: { backdropFilter: 'blur(16px)' } as any }) },
+  tabsInner: { flexDirection: 'row', position: 'relative' },
+  tabIndicator: { top: 0, bottom: 0, height: '100%' },
   tab: { flex: 1, paddingVertical: theme.spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: theme.borderRadius.full },
   tabActive: { backgroundColor: 'transparent' },
   tabText: { ...theme.typography.caption, color: theme.colors.textSecondary, fontWeight: '600' },

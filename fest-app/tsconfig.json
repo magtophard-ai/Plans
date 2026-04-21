@@ -2,9 +2,5 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  },
-  "exclude": [
-    "src/fest-animations/AnimationShowcase.tsx",
-    "src/fest-animations/screens/**/*"
-  ]
+  }
 }
