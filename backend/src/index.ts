@@ -19,7 +19,11 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: true, credentials: true });
+await app.register(cors, {
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+});
 await app.register(jwt, { secret: process.env.JWT_SECRET || 'dev-secret' });
 
 app.decorate('authenticate', async (request: any) => {
