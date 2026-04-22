@@ -102,6 +102,42 @@ async function migrate() {
     }
   }
 
+  // Idempotent enum additions for values introduced after the initial schema.
+  const ENUM_ADDITIONS: Array<{ type: string; value: string }> = [
+    { type: 'notification_type', value: 'plan_join_via_link' },
+  ];
+  for (const { type, value } of ENUM_ADDITIONS) {
+    try {
+      await pool.query(`ALTER TYPE ${type} ADD VALUE IF NOT EXISTS '${value}'`);
+    } catch (err: any) {
+      console.error(`Enum addition failed for ${type}=${value}:`, err);
+      throw err;
+    }
+  }
+
+  // Idempotent column additions introduced after the initial schema.
+  await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS share_token text`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_share_token_unique ON plans (share_token)`);
+  // Backfill tokens for rows created before this column existed.
+  const { rows: missing } = await pool.query(`SELECT id FROM plans WHERE share_token IS NULL`);
+  if (missing.length > 0) {
+    const { randomBytes } = await import('crypto');
+    for (const row of missing) {
+      let attempts = 0;
+      while (attempts < 5) {
+        const token = randomBytes(8).toString('hex');
+        try {
+          await pool.query(`UPDATE plans SET share_token = $1 WHERE id = $2 AND share_token IS NULL`, [token, row.id]);
+          break;
+        } catch (err: any) {
+          if (err.code === '23505') { attempts++; continue; } // unique_violation — retry
+          throw err;
+        }
+      }
+    }
+    console.log(`Backfilled share_token for ${missing.length} plans.`);
+  }
+
   console.log('Migration complete.');
   await pool.end();
 }

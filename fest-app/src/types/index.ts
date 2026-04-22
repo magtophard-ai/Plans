@@ -94,6 +94,7 @@ export interface Plan {
   pre_meet_enabled: boolean;
   pre_meet_place_text: string | null;
   pre_meet_time: string | null;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
   linked_event?: Event;

@@ -1,8 +1,9 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef, type LinkingOptions } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, StyleSheet, Platform, View, ActivityIndicator } from 'react-native';
+import * as Linking from 'expo-linking';
 import { useFonts, Unbounded_500Medium, Unbounded_700Bold } from '@expo-google-fonts/unbounded';
 import { theme } from './src/theme';
 import { useAuthStore } from './src/stores/authStore';
@@ -18,7 +19,9 @@ import { PlanDetailsScreen } from './src/screens/PlanDetailsScreen';
 import { GroupDetailsScreen } from './src/screens/GroupDetailsScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { VenueScreen } from './src/screens/VenueScreen';
+import { PublicPlanScreen } from './src/screens/PublicPlanScreen';
 import type { HomeStackParamList, PlansStackParamList, RootStackParamList } from './src/navigation/types';
+import { clearPendingJoinToken, extractShareTokenFromUrl, getPendingJoinToken, setPendingJoinToken } from './src/utils/pendingJoin';
 
 const Tab = createBottomTabNavigator();
 const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
@@ -66,14 +69,69 @@ const MainTabs = () => (
   </Tab.Navigator>
 );
 
-const AppNavigator = () => (
-  <NavigationContainer>
-    <RootStack.Navigator screenOptions={{ headerShown: false }}>
-      <RootStack.Screen name="MainTabs" component={MainTabs} />
-      <RootStack.Screen name="Notifications" component={NotificationsScreen} />
-    </RootStack.Navigator>
-  </NavigationContainer>
-);
+const linking: LinkingOptions<RootStackParamList> = {
+  prefixes: [Linking.createURL('/'), 'fest://', 'https://plans.app', 'http://localhost:8081'],
+  config: {
+    screens: {
+      PublicPlan: 'p/:token',
+      Notifications: 'notifications',
+      MainTabs: {
+        screens: {
+          HomeTab: 'home',
+          SearchTab: 'search',
+          CreateTab: 'create',
+          PlansTab: 'plans',
+          ProfileTab: 'profile',
+        },
+      },
+    },
+  },
+};
+
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+const AppNavigator = () => {
+  const handleReady = React.useCallback(() => {
+    const token = getPendingJoinToken();
+    if (!token) return;
+    // Clear immediately so a re-render doesn't re-navigate; PublicPlanScreen
+    // will handle the actual join and navigate to PlanDetails on success.
+    clearPendingJoinToken();
+    if (navigationRef.isReady()) navigationRef.navigate('PublicPlan', { token });
+  }, []);
+  return (
+    <NavigationContainer ref={navigationRef} linking={linking} onReady={handleReady}>
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+        <RootStack.Screen name="MainTabs" component={MainTabs} />
+        <RootStack.Screen name="Notifications" component={NotificationsScreen} />
+        <RootStack.Screen name="PublicPlan" component={PublicPlanScreen} />
+      </RootStack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+// When opened unauthenticated via a deep link like fest://p/:token or
+// https://…/p/:token, stash the token so we can auto-join right after login.
+function usePendingJoinCapture() {
+  React.useEffect(() => {
+    let cancelled = false;
+    Linking.getInitialURL().then((url) => {
+      if (cancelled) return;
+      const token = extractShareTokenFromUrl(url ?? undefined);
+      if (token && !getPendingJoinToken()) setPendingJoinToken(token);
+    });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      const token = extractShareTokenFromUrl(url);
+      if (token && !getPendingJoinToken()) setPendingJoinToken(token);
+    });
+    return () => { cancelled = true; sub.remove(); };
+  }, []);
+}
+
+const UnauthenticatedShell = () => {
+  usePendingJoinCapture();
+  return <AuthScreen />;
+};
 
 export default function App() {
   const isAuthenticated = useAuthStore((s: { isAuthenticated: boolean }) => s.isAuthenticated);
@@ -86,7 +144,7 @@ export default function App() {
       </View>
     );
   }
-  if (!isAuthenticated) return <AuthScreen />;
+  if (!isAuthenticated) return <UnauthenticatedShell />;
   return <AppNavigator />;
 }
 
