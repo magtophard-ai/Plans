@@ -1,7 +1,11 @@
 # FEST MVP — Current Status
 
-**Last updated**: 2026-04-21
-**State**: Frozen MVP core + beta hardening pass
+**Last updated**: 2026-04-22
+**State**: Frozen MVP core + beta hardening pass + social/share polish (PR #1, PR #2 merged)
+
+> 🧭 New agent? Read [`docs/HANDOFF.md`](./HANDOFF.md) first — it has the session
+> journal, the agreed roadmap, open PRs, and the exact scope for the next piece
+> of work (P2 = onboarding + empty states).
 
 ## Implementation status
 
@@ -27,7 +31,8 @@ All 4 slices implemented and integrated. All 7 stores are API-backed for active 
 | Invitations | Full API-backed (atomic accept with 15-participant lock) |
 | Groups | Full API-backed (list/detail/member reads through backend) |
 | Notifications | Full API-backed, server-created only |
-| Friends | Full API-backed via `GET /users/friends` |
+| Friends | Full API-backed; **pending → accepted** flow (PR #1) with `friend_request` notifications and incoming-requests UI |
+| Plan share / deep link | Share token + public preview + authed join + `plan_join_via_link` notification (PR #2); `fest://p/:token` linking |
 | WebSocket | Real — push-only, REST is source of truth |
 
 ## Realtime support
@@ -81,4 +86,12 @@ Quick start:
 
 ## Next recommended milestone
 
-**Push + Polish**: Add missing WS events (`plan.cancelled`, `plan.completed`, participant changes), wire up profile edit to `PATCH /users/me`, add friend management UI, and prepare for real SMS/auth integration.
+**P2 — Onboarding + empty states**: 3-slide onboarding before `AuthScreen`
+(gated by first-launch flag) and upgrade of the `EmptyState` component
+(icon + title + body + optional CTA) across ~10 call sites. Full agreed
+scope in [`docs/HANDOFF.md §4`](./HANDOFF.md). Other roadmap priorities (P3
+observability, P4 dark theme, P5 tests, P6 EAS, P7 push, P8 WS backfill)
+are sequenced in the handoff doc; do not reorder without asking the user.
+
+Open PR: [#3 — pendingJoin native fallback](https://github.com/magtophard-ai/Plans/pull/3)
+(must merge before P2 touches the auth/deep-link flow).

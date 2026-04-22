@@ -52,4 +52,6 @@ Web local still defaults to `http://localhost:3001/api` when `EXPO_PUBLIC_API_BA
 
 ## Current status
 
-See `docs/CURRENT_STATUS.md` and `docs/RUNBOOK.md`.
+- `docs/HANDOFF.md` — **start here if you're a fresh agent/contributor**: session journal, merged PRs, agreed roadmap, next-step scope, and environment gotchas.
+- `docs/CURRENT_STATUS.md` — canonical feature-by-feature status.
+- `docs/RUNBOOK.md` — how to run the stack.
