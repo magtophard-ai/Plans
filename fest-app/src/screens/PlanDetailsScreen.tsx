@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, Modal, Platform, Alert, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import { theme } from '../theme';
 import { usePlansStore } from '../stores/plansStore';
 import { useAuthStore } from '../stores/authStore';
@@ -218,6 +219,7 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
   onLeave?: () => void;
 }) => {
   const user = useAuthStore((s) => s.user);
+  const navigation = useNavigation();
   const [propModalVisible, setPropModalVisible] = useState(false);
   const [propType, setPropType] = useState<'place' | 'time'>('place');
   const [propValue, setPropValue] = useState('');
@@ -275,7 +277,11 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         </View>
         {plan.participants?.map((p, i) => (
           <FadeIn key={p.id} delay={i * 40} direction="up" distance={8}>
-            <View style={s.participantRow}>
+            <Pressable
+              style={s.participantRow}
+              onPress={() => (navigation as any).navigate('PublicProfile', { userId: p.user_id })}
+              activeScale={0.98}
+            >
               <Text style={s.participantName}>{p.user?.name ?? '???'}{p.user_id === plan.creator_id ? ' (создатель)' : ''}</Text>
               <View style={s.participantRight}>
                 <Badge label={STATUS_LABELS[p.status]} color={STATUS_COLORS[p.status]} pulse={p.status === 'going'} />
@@ -285,7 +291,7 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
                   </Pressable>
                 )}
               </View>
-            </View>
+            </Pressable>
           </FadeIn>
         ))}
         {onLeave && !isCompleted && !isCancelled && (

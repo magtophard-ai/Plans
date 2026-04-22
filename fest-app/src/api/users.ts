@@ -9,6 +9,11 @@ export const fetchFriends = (status?: string) => {
 export const fetchUser = (id: string) =>
   api<{ user: User }>(`/users/${id}`).then((r) => camelize<User>(r.user));
 
+export const searchUsers = (q: string, limit = 20) => {
+  const qs = `?q=${encodeURIComponent(q)}&limit=${limit}`;
+  return api<{ users: User[] }>(`/users/search${qs}`).then((r) => camelize<User[]>(r.users));
+};
+
 export const addFriend = (friendId: string) =>
   api<{ friendship: Friendship }>(`/users/friends/${friendId}`, { method: 'POST' });
 

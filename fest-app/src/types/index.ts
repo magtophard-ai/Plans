@@ -1,3 +1,5 @@
+export type FriendshipStatus = 'friend' | 'request_sent' | 'request_received' | null;
+
 export interface User {
   id: string;
   phone: string;
@@ -5,6 +7,7 @@ export interface User {
   username: string;
   avatar_url: string | null;
   created_at: string;
+  friendship_status?: FriendshipStatus;
 }
 
 export interface Friendship {

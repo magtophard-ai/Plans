@@ -77,12 +77,60 @@ export async function userRoutes(app: FastifyInstance) {
     return { friends: rows };
   });
 
+  app.get('/search', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { q, limit = '20' } = request.query as { q?: string; limit?: string };
+    const trimmed = (q ?? '').trim();
+    if (trimmed.length < 1)
+      return reply.code(400).send({ code: 'INVALID_INPUT', message: 'q must be non-empty' });
+    const lmt = Math.min(Math.max(parseInt(limit) || 20, 1), 50);
+    const like = `%${trimmed}%`;
+    const rows = (await query(
+      `SELECT u.*,
+              CASE
+                WHEN f.status = 'accepted' THEN 'friend'
+                WHEN f.status = 'pending' AND f.requester_id = $1 THEN 'request_sent'
+                WHEN f.status = 'pending' AND f.addressee_id = $1 THEN 'request_received'
+                ELSE NULL
+              END AS friendship_status
+       FROM users u
+       LEFT JOIN friendships f ON (
+         (f.requester_id = $1 AND f.addressee_id = u.id) OR
+         (f.addressee_id = $1 AND f.requester_id = u.id)
+       )
+       WHERE u.id != $1
+         AND (u.name ILIKE $2 OR u.username ILIKE $2)
+       ORDER BY
+         CASE WHEN u.username ILIKE $3 THEN 0 ELSE 1 END,
+         u.name ASC
+       LIMIT $4`,
+      [userId, like, `${trimmed}%`, lmt]
+    )).rows;
+    return { users: rows };
+  });
+
   app.get('/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
     const { id } = request.params as { id: string };
     if (!isUuid(id)) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'id must be a valid uuid' });
-    const user = (await query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
-    if (!user) return reply.code(404).send({ code: 'NOT_FOUND', message: 'User not found' });
-    return { user };
+    const row = (await query(
+      `SELECT u.*,
+              CASE
+                WHEN f.status = 'accepted' THEN 'friend'
+                WHEN f.status = 'pending' AND f.requester_id = $1 THEN 'request_sent'
+                WHEN f.status = 'pending' AND f.addressee_id = $1 THEN 'request_received'
+                ELSE NULL
+              END AS friendship_status
+       FROM users u
+       LEFT JOIN friendships f ON (
+         (f.requester_id = $1 AND f.addressee_id = u.id) OR
+         (f.addressee_id = $1 AND f.requester_id = u.id)
+       )
+       WHERE u.id = $2`,
+      [userId, id]
+    )).rows[0];
+    if (!row) return reply.code(404).send({ code: 'NOT_FOUND', message: 'User not found' });
+    return { user: row };
   });
 
   app.post('/friends/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {

@@ -13,15 +13,42 @@ export const ProfileScreen = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const { events, savedIds } = useEventsStore();
-  const { friends, loading: friendsLoading, error: friendsError, fetchFriends } = useFriendsStore();
+  const {
+    friends, loading: friendsLoading, error: friendsError, fetchFriends,
+    searchResults, searchQuery, searchLoading, searchUsers, clearSearch, addFriend, removeFriend,
+  } = useFriendsStore();
   const savedEvents = events.filter((e) => savedIds.has(e.id));
   const [showSaved, setShowSaved] = React.useState(false);
   const [showFriends, setShowFriends] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [editName, setEditName] = React.useState(user?.name ?? '');
+  const [localQuery, setLocalQuery] = React.useState('');
+  const [mutatingId, setMutatingId] = React.useState<string | null>(null);
   const navigation = useNavigation();
 
   React.useEffect(() => { fetchFriends(); }, []);
+
+  React.useEffect(() => {
+    if (!showFriends) return;
+    const handle = setTimeout(() => { searchUsers(localQuery); }, 250);
+    return () => clearTimeout(handle);
+  }, [localQuery, showFriends]);
+
+  React.useEffect(() => {
+    if (!showFriends) { clearSearch(); setLocalQuery(''); }
+  }, [showFriends]);
+
+  const handleAddFriend = async (friendId: string) => {
+    if (mutatingId) return;
+    setMutatingId(friendId);
+    try { await addFriend(friendId); } catch {} finally { setMutatingId(null); }
+  };
+
+  const handleRemoveFriend = async (friendId: string) => {
+    if (mutatingId) return;
+    setMutatingId(friendId);
+    try { await removeFriend(friendId); } catch {} finally { setMutatingId(null); }
+  };
 
   const handleSaveProfile = () => {
     setEditing(false);
@@ -65,46 +92,102 @@ export const ProfileScreen = () => {
     </View>
   );
 
-  if (showFriends) return (
-    <View style={s.root}>
-      <Aurora />
-      <ScreenContainer>
-        <View style={s.inner}>
-          <Pressable style={s.backBtn} onPress={() => setShowFriends(false)} activeScale={0.92}>
-            <Text style={s.backText}>← Назад</Text>
-          </Pressable>
-          <FadeIn delay={40} direction="down">
-            <View style={s.subHero}>
-              <Text style={s.eyebrow}>Круг</Text>
-              <Text style={s.subHeroTitle}>Друзья</Text>
+  if (showFriends) {
+    const hasQuery = localQuery.trim().length > 0;
+    const data = hasQuery ? searchResults : friends;
+    const listLoading = hasQuery ? searchLoading : friendsLoading;
+
+    const goToProfile = (uid: string) => (navigation as any).navigate('PublicProfile', { userId: uid });
+
+    return (
+      <View style={s.root}>
+        <Aurora />
+        <ScreenContainer>
+          <View style={s.inner}>
+            <Pressable style={s.backBtn} onPress={() => setShowFriends(false)} activeScale={0.92}>
+              <Text style={s.backText}>← Назад</Text>
+            </Pressable>
+            <FadeIn delay={40} direction="down">
+              <View style={s.subHero}>
+                <Text style={s.eyebrow}>Круг</Text>
+                <Text style={s.subHeroTitle}>Друзья</Text>
+              </View>
+            </FadeIn>
+            <View style={s.searchWrap}>
+              <TextInput
+                style={s.searchInput}
+                value={localQuery}
+                onChangeText={setLocalQuery}
+                placeholder="Найти друзей по имени или @username"
+                placeholderTextColor={theme.colors.textTertiary}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {localQuery.length > 0 ? (
+                <Pressable onPress={() => setLocalQuery('')} style={s.searchClear} hitSlop={8} activeScale={0.9}>
+                  <Text style={s.searchClearText}>✕</Text>
+                </Pressable>
+              ) : null}
             </View>
-          </FadeIn>
-          {friendsError ? <Text style={s.errorBanner}>{friendsError}</Text> : null}
-          {friendsLoading ? <ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /> : (
-            <FlatList
-              data={friends}
-              keyExtractor={(u) => u.id}
-              renderItem={({ item, index }) => (
-                <FadeIn delay={80 + index * 30} distance={10}>
-                  <Tilt maxTilt={3} liftOnHover={2}>
-                    <View style={s.friendRow}>
-                      <View style={s.friendAvatar}><Text style={s.friendLetter}>{item.name[0]}</Text></View>
-                      <View style={s.friendInfo}>
-                        <Text style={s.friendName}>{item.name}</Text>
-                        <Text style={s.friendUsername}>@{item.username}</Text>
-                      </View>
-                    </View>
-                  </Tilt>
-                </FadeIn>
-              )}
-              contentContainerStyle={s.list}
-              ListEmptyComponent={<EmptyState text="Нет друзей" />}
-            />
-          )}
-        </View>
-      </ScreenContainer>
-    </View>
-  );
+            {friendsError ? <Text style={s.errorBanner}>{friendsError}</Text> : null}
+            {listLoading ? <ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /> : (
+              <FlatList
+                data={data}
+                keyExtractor={(u) => u.id}
+                renderItem={({ item, index }) => {
+                  const isFriend = hasQuery
+                    ? item.friendship_status === 'friend'
+                    : true;
+                  const busy = mutatingId === item.id;
+                  return (
+                    <FadeIn delay={80 + index * 30} distance={10}>
+                      <Tilt maxTilt={3} liftOnHover={2}>
+                        <Pressable style={s.friendRow} onPress={() => goToProfile(item.id)} activeScale={0.98}>
+                          <View style={s.friendAvatar}><Text style={s.friendLetter}>{item.name[0]}</Text></View>
+                          <View style={s.friendInfo}>
+                            <Text style={s.friendName}>{item.name}</Text>
+                            <Text style={s.friendUsername}>@{item.username}</Text>
+                          </View>
+                          {hasQuery ? (
+                            isFriend ? (
+                              <Pressable
+                                style={s.friendActionGhost}
+                                onPress={() => handleRemoveFriend(item.id)}
+                                activeScale={0.9}
+                                hitSlop={4}
+                                disabled={busy}
+                              >
+                                <Text style={s.friendActionGhostText}>{busy ? '...' : 'В друзьях'}</Text>
+                              </Pressable>
+                            ) : (
+                              <Pressable
+                                style={s.friendActionPrimary}
+                                onPress={() => handleAddFriend(item.id)}
+                                activeScale={0.9}
+                                hitSlop={4}
+                                disabled={busy}
+                              >
+                                <Text style={s.friendActionPrimaryText}>{busy ? '...' : '＋ Добавить'}</Text>
+                              </Pressable>
+                            )
+                          ) : null}
+                        </Pressable>
+                      </Tilt>
+                    </FadeIn>
+                  );
+                }}
+                contentContainerStyle={s.list}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  <EmptyState text={hasQuery ? 'Никого не найдено' : 'Нет друзей — попробуйте найти кого-то выше'} />
+                }
+              />
+            )}
+          </View>
+        </ScreenContainer>
+      </View>
+    );
+  }
 
   return (
     <View style={s.root}>
@@ -215,4 +298,12 @@ const s = StyleSheet.create({
   friendUsername: { ...theme.typography.caption, color: theme.colors.textTertiary },
   loader: { marginTop: 40 },
   errorBanner: { ...theme.typography.caption, color: theme.colors.error, textAlign: 'center', padding: theme.spacing.sm, backgroundColor: theme.colors.error + '11', marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md, backgroundColor: 'rgba(255,255,255,0.82)', borderRadius: theme.borderRadius.full, borderWidth: 1, borderColor: 'rgba(108,92,231,0.18)', paddingHorizontal: theme.spacing.md, ...theme.shadows.sm, ...Platform.select({ web: { backdropFilter: 'blur(10px)' } as any }) },
+  searchInput: { flex: 1, ...theme.typography.body, color: theme.colors.textPrimary, paddingVertical: Platform.select({ web: theme.spacing.sm, default: theme.spacing.md }), ...Platform.select({ web: { outlineStyle: 'none' } as any }) },
+  searchClear: { paddingHorizontal: theme.spacing.sm, paddingVertical: 4 },
+  searchClearText: { fontSize: 14, color: theme.colors.textTertiary, fontWeight: '700' },
+  friendActionPrimary: { backgroundColor: theme.colors.primary, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, ...theme.shadows.sm },
+  friendActionPrimaryText: { ...theme.typography.captionBold, color: theme.colors.textInverse, fontWeight: '700' },
+  friendActionGhost: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, borderWidth: 1, borderColor: theme.colors.primary + '55' },
+  friendActionGhostText: { ...theme.typography.captionBold, color: theme.colors.primary, fontWeight: '700' },
 });

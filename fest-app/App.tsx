@@ -18,6 +18,7 @@ import { PlanDetailsScreen } from './src/screens/PlanDetailsScreen';
 import { GroupDetailsScreen } from './src/screens/GroupDetailsScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { VenueScreen } from './src/screens/VenueScreen';
+import { PublicProfileScreen } from './src/screens/PublicProfileScreen';
 import type { HomeStackParamList, PlansStackParamList, RootStackParamList } from './src/navigation/types';
 
 const Tab = createBottomTabNavigator();
@@ -71,6 +72,7 @@ const AppNavigator = () => (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
       <RootStack.Screen name="MainTabs" component={MainTabs} />
       <RootStack.Screen name="Notifications" component={NotificationsScreen} />
+      <RootStack.Screen name="PublicProfile" component={PublicProfileScreen} />
     </RootStack.Navigator>
   </NavigationContainer>
 );
