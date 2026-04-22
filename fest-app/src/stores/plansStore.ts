@@ -152,6 +152,7 @@ export const usePlansStore = create<PlansState>((set, get) => ({
       set((s) => ({ plans: upsertPlan(s.plans, res.plan) }));
     } catch (e: any) {
       set({ error: e?.message || 'Ошибка финализации' });
+      throw e;
     }
   },
 

@@ -395,12 +395,17 @@ export async function planRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { place_proposal_id, time_proposal_id } = request.body as { place_proposal_id?: string; time_proposal_id?: string };
 
-    if (!place_proposal_id && !time_proposal_id) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'At least one proposal id (place or time) required' });
-
     const plan = (await query('SELECT * FROM plans WHERE id = $1', [id])).rows[0];
     if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
     if (plan.creator_id !== userId) return reply.code(403).send({ code: 'FORBIDDEN', message: 'Only creator can finalize' });
     if (plan.lifecycle_state !== 'active') return reply.code(400).send({ code: 'INVALID_STATE', message: 'Can only finalize active plans' });
+
+    // Finalize is allowed when:
+    //   - a proposal id is provided (transition its status to confirmed as part of finalization), OR
+    //   - place and time are both already confirmed directly on the plan (no proposal needed — just flip lifecycle_state).
+    if (!place_proposal_id && !time_proposal_id && (plan.place_status !== 'confirmed' || plan.time_status !== 'confirmed')) {
+      return reply.code(400).send({ code: 'INVALID_STATE', message: 'Plan must have confirmed place and time before finalizing' });
+    }
 
     const client = await pool.connect();
     try {
