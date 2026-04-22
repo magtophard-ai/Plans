@@ -62,7 +62,8 @@ CREATE TYPE notification_type AS ENUM (
   'plan_invite', 'group_invite', 'proposal_created',
   'plan_finalized', 'plan_unfinalized',
   'event_time_changed', 'event_cancelled',
-  'plan_reminder', 'plan_completed'
+  'plan_reminder', 'plan_completed',
+  'friend_request'
 );
 
 CREATE TYPE message_type AS ENUM (

@@ -31,7 +31,7 @@ export const PublicProfileScreen = () => {
   const { userId } = route.params;
 
   const me = useAuthStore((s) => s.user);
-  const { addFriend, removeFriend } = useFriendsStore();
+  const { addFriend, removeFriend, acceptFriendRequest, declineFriendRequest } = useFriendsStore();
 
   const [user, setUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -61,7 +61,47 @@ export const PublicProfileScreen = () => {
     setMutating(true);
     try {
       await addFriend(user.id);
+      const refreshed = await usersApi.fetchUser(user.id);
+      setUser(refreshed);
+    } catch {
+      // error surfaced via friendsStore.error
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  const handleAccept = async () => {
+    if (!user || mutating) return;
+    setMutating(true);
+    try {
+      await acceptFriendRequest(user.id);
       setUser((prev) => (prev ? { ...prev, friendship_status: 'friend' } : prev));
+    } catch {
+      // error surfaced via friendsStore.error
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  const handleDecline = async () => {
+    if (!user || mutating) return;
+    setMutating(true);
+    try {
+      await declineFriendRequest(user.id);
+      setUser((prev) => (prev ? { ...prev, friendship_status: null } : prev));
+    } catch {
+      // error surfaced via friendsStore.error
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  const handleCancelRequest = async () => {
+    if (!user || mutating) return;
+    setMutating(true);
+    try {
+      await removeFriend(user.id);
+      setUser((prev) => (prev ? { ...prev, friendship_status: null } : prev));
     } catch {
       // error surfaced via friendsStore.error
     } finally {
@@ -138,6 +178,19 @@ export const PublicProfileScreen = () => {
                     <Pressable style={[s.actionBtn, s.actionBtnGhost]} onPress={handleRemove} activeScale={0.97} disabled={mutating}>
                       <Text style={s.actionBtnGhostText}>{mutating ? '...' : 'Удалить из друзей'}</Text>
                     </Pressable>
+                  ) : status === 'request_sent' ? (
+                    <Pressable style={[s.actionBtn, s.actionBtnGhost]} onPress={handleCancelRequest} activeScale={0.97} disabled={mutating}>
+                      <Text style={s.actionBtnGhostText}>{mutating ? '...' : 'Отменить заявку'}</Text>
+                    </Pressable>
+                  ) : status === 'request_received' ? (
+                    <View style={s.actionRow}>
+                      <Pressable style={[s.actionBtn, s.actionBtnHalf]} onPress={handleAccept} activeScale={0.97} disabled={mutating}>
+                        <Text style={s.actionBtnText}>{mutating ? '...' : 'Принять'}</Text>
+                      </Pressable>
+                      <Pressable style={[s.actionBtn, s.actionBtnGhost, s.actionBtnHalf]} onPress={handleDecline} activeScale={0.97} disabled={mutating}>
+                        <Text style={s.actionBtnGhostText}>{mutating ? '...' : 'Отклонить'}</Text>
+                      </Pressable>
+                    </View>
                   ) : (
                     <Pressable style={s.actionBtn} onPress={handleAdd} activeScale={0.97} disabled={mutating}>
                       <Text style={s.actionBtnText}>{mutating ? '...' : '＋ Добавить в друзья'}</Text>
@@ -175,7 +228,9 @@ const s = StyleSheet.create({
   statusPill: { alignSelf: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: 4, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.primaryLight + '22', marginBottom: theme.spacing.lg },
   statusPillText: { ...theme.typography.captionBold, color: theme.colors.primary },
   actions: { paddingHorizontal: theme.spacing.lg, marginTop: theme.spacing.md },
+  actionRow: { flexDirection: 'row', gap: theme.spacing.sm },
   actionBtn: { backgroundColor: theme.colors.primary, paddingVertical: theme.spacing.md, borderRadius: theme.borderRadius.lg, alignItems: 'center', ...theme.shadows.sm },
+  actionBtnHalf: { flex: 1 },
   actionBtnText: { ...theme.typography.bodyBold, color: theme.colors.textInverse, letterSpacing: 0.2 },
   actionBtnGhost: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: theme.colors.error + '66' },
   actionBtnGhostText: { ...theme.typography.bodyBold, color: theme.colors.error, letterSpacing: 0.2 },

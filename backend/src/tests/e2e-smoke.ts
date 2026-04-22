@@ -97,12 +97,29 @@ async function main() {
   const friendsA: any = await api('/users/friends?status=accepted', tokenA);
   assert(Array.isArray(friendsA.friends), 'GET /users/friends returns array');
 
-  // Add friend
+  // Send friend request (A → B) — creates pending, not accepted
   const addFriendRes: any = await api(`/users/friends/${userBId}`, tokenA, 'POST');
-  assert(!!addFriendRes.friendship, 'POST /users/friends/:id returns friendship');
+  assert(addFriendRes?.friendship?.status === 'pending', 'POST /users/friends/:id creates pending friendship');
+  assert(addFriendRes.friendship.requester_id === userAId, 'Requester is the caller');
+
+  // Duplicate POST from A → 409 REQUEST_ALREADY_SENT
+  const dupRes: any = await api(`/users/friends/${userBId}`, tokenA, 'POST');
+  assert(dupRes?.code === 'REQUEST_ALREADY_SENT', 'Duplicate request → 409 REQUEST_ALREADY_SENT');
+
+  // B sees the request as incoming
+  const incomingB: any = await api('/users/friends?status=pending&direction=incoming', tokenB);
+  assert(incomingB.friends.some((f: any) => f.id === userAId && f.friendship_status === 'request_received'), 'B sees A in incoming pending');
+
+  // A sees the request as outgoing
+  const outgoingA: any = await api('/users/friends?status=pending&direction=outgoing', tokenA);
+  assert(outgoingA.friends.some((f: any) => f.id === userBId && f.friendship_status === 'request_sent'), 'A sees B in outgoing pending');
+
+  // B accepts via PATCH
+  const acceptRes: any = await api(`/users/friends/${userAId}`, tokenB, 'PATCH', { action: 'accept' });
+  assert(acceptRes?.friendship?.status === 'accepted', 'PATCH accept transitions friendship to accepted');
 
   const friendsAfter: any = await api('/users/friends?status=accepted', tokenA);
-  assert(friendsAfter.friends.some((f: any) => f.id === userBId), 'B appears in A friends after add');
+  assert(friendsAfter.friends.some((f: any) => f.id === userBId), 'B appears in A friends after accept');
 
   // --- SECTION 4: Groups API ---
   console.log('\n4. Groups API');

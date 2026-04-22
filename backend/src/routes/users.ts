@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { query } from '../db/pool.js';
+import { insertNotification } from '../db/notifications.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -49,9 +50,12 @@ export async function userRoutes(app: FastifyInstance) {
 
   app.get('/friends', { preHandler: [(app as any).authenticate] }, async (request) => {
     const userId = (request.user as any).userId;
-    const { status } = request.query as { status?: string };
+    const { status, direction } = request.query as { status?: string; direction?: string };
     if (status !== undefined && status !== 'accepted' && status !== 'pending') {
       throw { statusCode: 400, code: 'INVALID_INPUT', message: 'status must be accepted or pending' };
+    }
+    if (direction !== undefined && direction !== 'incoming' && direction !== 'outgoing') {
+      throw { statusCode: 400, code: 'INVALID_INPUT', message: 'direction must be incoming or outgoing' };
     }
 
     const params: any[] = [userId];
@@ -66,9 +70,20 @@ export async function userRoutes(app: FastifyInstance) {
       params.push(status);
       filters.push(`f.status = $${params.length}`);
     }
+    if (direction === 'incoming') {
+      filters.push(`f.addressee_id = $1`);
+    } else if (direction === 'outgoing') {
+      filters.push(`f.requester_id = $1`);
+    }
 
     const rows = (await query(
-      `SELECT u.*
+      `SELECT u.*,
+              CASE
+                WHEN f.status = 'accepted' THEN 'friend'
+                WHEN f.status = 'pending' AND f.requester_id = $1 THEN 'request_sent'
+                WHEN f.status = 'pending' AND f.addressee_id = $1 THEN 'request_received'
+                ELSE NULL
+              END AS friendship_status
        FROM users u
        JOIN friendships f ON ${filters.join(' AND ')}
        ORDER BY u.name ASC, u.created_at ASC`,
@@ -133,32 +148,108 @@ export async function userRoutes(app: FastifyInstance) {
     return { user: row };
   });
 
+  // POST /users/friends/:id — send (or auto-accept reverse) friend request.
+  // Behavior depends on existing row between (me, target):
+  //   - none                           → INSERT pending (requester=me), notify target
+  //   - pending, requester=me          → 409 REQUEST_ALREADY_SENT (idempotent would hide accidental double-click; 409 is louder)
+  //   - pending, addressee=me          → auto-accept (user chose to add back)
+  //   - accepted                       → 409 ALREADY_FRIENDS
   app.post('/friends/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { id: friendId } = request.params as { id: string };
     if (!isUuid(friendId)) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'id must be a valid uuid' });
     if (friendId === userId) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Cannot add yourself as friend' });
 
-    const friend = (await query('SELECT 1 FROM users WHERE id = $1', [friendId])).rows[0];
+    const friend = (await query('SELECT id, name, username FROM users WHERE id = $1', [friendId])).rows[0];
     if (!friend) return reply.code(404).send({ code: 'NOT_FOUND', message: 'User not found' });
 
-    const [r, a] = userId < friendId ? [userId, friendId] : [friendId, userId];
-    const friendship = (await query(
-      `INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, 'accepted')
-       ON CONFLICT (requester_id, addressee_id) DO UPDATE SET status = 'accepted'
-       RETURNING *`,
-      [r, a]
+    const me = (await query('SELECT id, name, username FROM users WHERE id = $1', [userId])).rows[0];
+
+    const existing = (await query(
+      `SELECT * FROM friendships
+       WHERE (requester_id = $1 AND addressee_id = $2)
+          OR (requester_id = $2 AND addressee_id = $1)
+       LIMIT 1`,
+      [userId, friendId]
     )).rows[0];
-    return { friendship };
+
+    if (existing) {
+      if (existing.status === 'accepted') {
+        return reply.code(409).send({ code: 'ALREADY_FRIENDS', message: 'Already friends', friendship: existing });
+      }
+      // status === 'pending'
+      if (existing.requester_id === userId) {
+        return reply.code(409).send({ code: 'REQUEST_ALREADY_SENT', message: 'Friend request already sent', friendship: existing });
+      }
+      // requester is the other user — auto-accept on re-add
+      const updated = (await query(
+        `UPDATE friendships SET status = 'accepted' WHERE id = $1 RETURNING *`,
+        [existing.id]
+      )).rows[0];
+      return { friendship: updated };
+    }
+
+    const friendship = (await query(
+      `INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, 'pending') RETURNING *`,
+      [userId, friendId]
+    )).rows[0];
+
+    try {
+      await insertNotification(friendId, 'friend_request', {
+        friendship_id: friendship.id,
+        requester_id: userId,
+        requester_name: me?.name,
+        requester_username: me?.username,
+      });
+    } catch (err) {
+      // Notification insertion must not roll back the friendship create.
+      request.log.error({ err }, 'failed to insert friend_request notification');
+    }
+
+    return reply.code(201).send({ friendship });
   });
 
+  // PATCH /users/friends/:id — accept or decline a pending friendship where I'm the addressee.
+  app.patch('/friends/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { id: friendId } = request.params as { id: string };
+    if (!isUuid(friendId)) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'id must be a valid uuid' });
+    const body = (request.body ?? {}) as { action?: string };
+    if (body.action !== 'accept' && body.action !== 'decline') {
+      return reply.code(400).send({ code: 'INVALID_INPUT', message: "action must be 'accept' or 'decline'" });
+    }
+
+    const existing = (await query(
+      `SELECT * FROM friendships
+       WHERE requester_id = $1 AND addressee_id = $2 AND status = 'pending'`,
+      [friendId, userId]
+    )).rows[0];
+    if (!existing) return reply.code(404).send({ code: 'NOT_FOUND', message: 'No pending request from this user' });
+
+    if (body.action === 'decline') {
+      await query(`DELETE FROM friendships WHERE id = $1`, [existing.id]);
+      return reply.code(204).send();
+    }
+
+    const updated = (await query(
+      `UPDATE friendships SET status = 'accepted' WHERE id = $1 RETURNING *`,
+      [existing.id]
+    )).rows[0];
+    return { friendship: updated };
+  });
+
+  // DELETE /users/friends/:id — remove friend OR cancel outgoing OR decline incoming request.
   app.delete('/friends/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
     const userId = (request.user as any).userId;
     const { id: friendId } = request.params as { id: string };
     if (!isUuid(friendId)) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'id must be a valid uuid' });
     if (friendId === userId) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Cannot remove yourself as friend' });
-    const [r, a] = userId < friendId ? [userId, friendId] : [friendId, userId];
-    await query('DELETE FROM friendships WHERE requester_id = $1 AND addressee_id = $2', [r, a]);
+    await query(
+      `DELETE FROM friendships
+       WHERE (requester_id = $1 AND addressee_id = $2)
+          OR (requester_id = $2 AND addressee_id = $1)`,
+      [userId, friendId]
+    );
     return reply.code(204).send();
   });
 }

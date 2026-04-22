@@ -181,7 +181,8 @@ export type NotificationType =
   | 'event_time_changed'
   | 'event_cancelled'
   | 'plan_reminder'
-  | 'plan_completed';
+  | 'plan_completed'
+  | 'friend_request';
 
 export interface Notification {
   id: string;

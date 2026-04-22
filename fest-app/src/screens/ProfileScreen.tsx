@@ -16,6 +16,7 @@ export const ProfileScreen = () => {
   const {
     friends, loading: friendsLoading, error: friendsError, fetchFriends,
     searchResults, searchQuery, searchLoading, searchUsers, clearSearch, addFriend, removeFriend,
+    incomingRequests, fetchRequests, acceptFriendRequest, declineFriendRequest,
   } = useFriendsStore();
   const savedEvents = events.filter((e) => savedIds.has(e.id));
   const [showSaved, setShowSaved] = React.useState(false);
@@ -26,7 +27,7 @@ export const ProfileScreen = () => {
   const [mutatingId, setMutatingId] = React.useState<string | null>(null);
   const navigation = useNavigation();
 
-  React.useEffect(() => { fetchFriends(); }, []);
+  React.useEffect(() => { fetchFriends(); fetchRequests(); }, []);
 
   React.useEffect(() => {
     if (!showFriends) return;
@@ -48,6 +49,18 @@ export const ProfileScreen = () => {
     if (mutatingId) return;
     setMutatingId(friendId);
     try { await removeFriend(friendId); } catch {} finally { setMutatingId(null); }
+  };
+
+  const handleAcceptRequest = async (friendId: string) => {
+    if (mutatingId) return;
+    setMutatingId(friendId);
+    try { await acceptFriendRequest(friendId); } catch {} finally { setMutatingId(null); }
+  };
+
+  const handleDeclineRequest = async (friendId: string) => {
+    if (mutatingId) return;
+    setMutatingId(friendId);
+    try { await declineFriendRequest(friendId); } catch {} finally { setMutatingId(null); }
   };
 
   const handleSaveProfile = () => {
@@ -130,6 +143,44 @@ export const ProfileScreen = () => {
               ) : null}
             </View>
             {friendsError ? <Text style={s.errorBanner}>{friendsError}</Text> : null}
+            {!hasQuery && incomingRequests.length > 0 ? (
+              <View style={s.requestsBlock}>
+                <Text style={s.sectionHeader}>Входящие заявки</Text>
+                {incomingRequests.map((item) => {
+                  const busy = mutatingId === item.id;
+                  return (
+                    <Pressable key={item.id} style={s.friendRow} onPress={() => goToProfile(item.id)} activeScale={0.98}>
+                      <View style={s.friendAvatar}><Text style={s.friendLetter}>{item.name[0]}</Text></View>
+                      <View style={s.friendInfo}>
+                        <Text style={s.friendName}>{item.name}</Text>
+                        <Text style={s.friendUsername}>@{item.username}</Text>
+                      </View>
+                      <View style={s.requestActions}>
+                        <Pressable
+                          style={s.requestAccept}
+                          onPress={() => handleAcceptRequest(item.id)}
+                          activeScale={0.9}
+                          hitSlop={4}
+                          disabled={busy}
+                        >
+                          <Text style={s.requestAcceptText}>{busy ? '...' : 'Принять'}</Text>
+                        </Pressable>
+                        <Pressable
+                          style={s.requestDecline}
+                          onPress={() => handleDeclineRequest(item.id)}
+                          activeScale={0.9}
+                          hitSlop={4}
+                          disabled={busy}
+                        >
+                          <Text style={s.requestDeclineText}>✕</Text>
+                        </Pressable>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+                <Text style={s.sectionHeader}>Мои друзья</Text>
+              </View>
+            ) : null}
             {listLoading ? <ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /> : (
               <FlatList
                 data={data}
@@ -224,7 +275,12 @@ export const ProfileScreen = () => {
                 <Pressable style={s.menuItem} onPress={() => setShowFriends(true)} activeScale={0.97}>
                   <View style={s.menuRow}>
                     <Text style={s.menuText}>Друзья</Text>
-                    <View style={s.badgePill}><Text style={s.menuBadge}>{friends.length}</Text></View>
+                    <View style={s.badgeGroup}>
+                      {incomingRequests.length > 0 ? (
+                        <View style={s.badgeAlert}><Text style={s.badgeAlertText}>{incomingRequests.length}</Text></View>
+                      ) : null}
+                      <View style={s.badgePill}><Text style={s.menuBadge}>{friends.length}</Text></View>
+                    </View>
                   </View>
                 </Pressable>
               </Tilt>
@@ -278,7 +334,17 @@ const s = StyleSheet.create({
   menuText: { ...theme.typography.body, color: theme.colors.textPrimary, fontWeight: '600' },
   menuRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flex: 1 },
   badgePill: { backgroundColor: theme.colors.primaryLight + '22', borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing.sm, paddingVertical: 2, minWidth: 24, alignItems: 'center' },
+  badgeGroup: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
+  badgeAlert: { backgroundColor: theme.colors.accent + 'cc', borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing.sm, paddingVertical: 2, minWidth: 24, alignItems: 'center' },
+  badgeAlertText: { ...theme.typography.captionBold, color: theme.colors.textInverse, fontWeight: '800' },
   menuBadge: { ...theme.typography.captionBold, color: theme.colors.primary, fontWeight: '800' },
+  requestsBlock: { paddingHorizontal: theme.spacing.lg, gap: theme.spacing.xs, marginBottom: theme.spacing.sm },
+  sectionHeader: { fontFamily: theme.fonts.displayMedium, fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: theme.colors.accent, marginTop: theme.spacing.sm, marginBottom: theme.spacing.xs },
+  requestActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
+  requestAccept: { backgroundColor: theme.colors.primary, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, ...theme.shadows.sm },
+  requestAcceptText: { ...theme.typography.captionBold, color: theme.colors.textInverse, fontWeight: '800' },
+  requestDecline: { borderWidth: 1.5, borderColor: theme.colors.error + '66', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full },
+  requestDeclineText: { ...theme.typography.captionBold, color: theme.colors.error, fontWeight: '800' },
   backBtn: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: theme.spacing.sm, ...Platform.select({ web: { paddingTop: theme.spacing.lg } }) },
   backText: { ...theme.typography.body, color: theme.colors.primary, fontWeight: '700' },
   subHero: { paddingHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md },

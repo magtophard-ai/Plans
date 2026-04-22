@@ -1,8 +1,18 @@
 import { api, camelize } from './client';
 import type { User, Friendship } from '../types';
 
-export const fetchFriends = (status?: string) => {
-  const qs = status ? `?status=${status}` : '';
+type FriendsQuery = {
+  status?: 'accepted' | 'pending';
+  direction?: 'incoming' | 'outgoing';
+};
+
+const buildQs = (params: Record<string, string | undefined>) => {
+  const pairs = Object.entries(params).filter(([, v]) => !!v) as [string, string][];
+  return pairs.length ? `?${pairs.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')}` : '';
+};
+
+export const fetchFriends = (q: FriendsQuery = {}) => {
+  const qs = buildQs({ status: q.status, direction: q.direction });
   return api<{ friends: User[] }>(`/users/friends${qs}`).then((r) => camelize<User[]>(r.friends));
 };
 
@@ -16,6 +26,9 @@ export const searchUsers = (q: string, limit = 20) => {
 
 export const addFriend = (friendId: string) =>
   api<{ friendship: Friendship }>(`/users/friends/${friendId}`, { method: 'POST' });
+
+export const respondToFriendRequest = (friendId: string, action: 'accept' | 'decline') =>
+  api<{ friendship: Friendship } | null>(`/users/friends/${friendId}`, { method: 'PATCH', body: { action } });
 
 export const removeFriend = (friendId: string) =>
   api(`/users/friends/${friendId}`, { method: 'DELETE' });
