@@ -40,6 +40,8 @@ export const getToken = () => authToken;
 export const api = async <T>(path: string, options: { method?: string; body?: unknown; noAuth?: boolean } = {}): Promise<T> => {
   const { method = 'GET', body, noAuth = false } = options;
   const headers: Record<string, string> = {};
+  // Only advertise a JSON body when we actually have one. Fastify rejects
+  // bodyless POSTs that declare Content-Type: application/json.
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!noAuth && authToken) headers['Authorization'] = `Bearer ${authToken}`;
 

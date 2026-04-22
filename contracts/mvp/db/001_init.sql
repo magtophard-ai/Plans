@@ -63,7 +63,8 @@ CREATE TYPE notification_type AS ENUM (
   'plan_finalized', 'plan_unfinalized',
   'event_time_changed', 'event_cancelled',
   'plan_reminder', 'plan_completed',
-  'friend_request'
+  'friend_request',
+  'plan_join_via_link'
 );
 
 CREATE TYPE message_type AS ENUM (
@@ -161,11 +162,13 @@ CREATE TABLE plans (
   pre_meet_enabled       boolean NOT NULL DEFAULT false,
   pre_meet_place_text    varchar(300),
   pre_meet_time          timestamptz,
+  share_token            text UNIQUE,
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_plans_creator   ON plans (creator_id);
 CREATE INDEX idx_plans_lifecycle ON plans (lifecycle_state);
+CREATE INDEX idx_plans_share_token ON plans (share_token);
 CREATE INDEX idx_plans_event     ON plans (linked_event_id) WHERE linked_event_id IS NOT NULL;
 
 CREATE TABLE plan_participants (

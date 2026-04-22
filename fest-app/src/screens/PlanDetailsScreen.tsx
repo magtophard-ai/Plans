@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, Modal, Platform, Alert, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList, Modal, Platform, Alert, ActivityIndicator, KeyboardAvoidingView, Share } from 'react-native';
+import * as Linking from 'expo-linking';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { theme } from '../theme';
@@ -99,6 +100,33 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
     if (newId) navigation.replace('PlanDetails', { planId: newId });
   };
 
+  const handleShare = async () => {
+    if (!plan?.share_token) {
+      Alert.alert('Ссылка недоступна', 'У плана ещё нет share-токена. Попробуйте позже.');
+      return;
+    }
+    const path = `p/${plan.share_token}`;
+    // On web, use current origin so shared link opens the web app.
+    const webUrl =
+      Platform.OS === 'web' && typeof window !== 'undefined' && window.location
+        ? `${window.location.origin}/${path}`
+        : `https://plans.app/${path}`;
+    const deepLink = Linking.createURL(path);
+    const message = `Присоединяйся к плану «${plan.title}»: ${webUrl}`;
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && (navigator as any).share) {
+        await (navigator as any).share({ title: plan.title, text: message, url: webUrl });
+      } else if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(webUrl);
+        Alert.alert('Ссылка скопирована', webUrl);
+      } else {
+        await Share.share({ message, url: deepLink });
+      }
+    } catch {
+      // user cancelled share — no-op
+    }
+  };
+
   const participantUserIds = new Set((plan.participants || []).map((p) => p.user_id));
   const inviteCandidates = friends.filter((friend) => !participantUserIds.has(friend.id));
 
@@ -107,9 +135,16 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
       <Aurora />
       <ScreenContainer>
       <View style={s.inner}>
-          <Pressable style={s.backBtn} onPress={() => navigation.goBack()} activeScale={0.92} hitSlop={12}>
-            <Text style={s.backText}>← Назад</Text>
-          </Pressable>
+          <View style={s.topBar}>
+            <Pressable style={s.backBtn} onPress={() => navigation.goBack()} activeScale={0.92} hitSlop={12}>
+              <Text style={s.backText}>← Назад</Text>
+            </Pressable>
+            {plan.share_token && plan.lifecycle_state !== 'cancelled' ? (
+              <Pressable style={s.shareBtn} onPress={handleShare} activeScale={0.92} hitSlop={8}>
+                <Text style={s.shareBtnText}>Поделиться</Text>
+              </Pressable>
+            ) : null}
+          </View>
           {planError && <Text style={s.errorBanner}>{planError}</Text>}
         <FadeIn delay={60} direction="down" distance={14}>
           <View style={s.heroBlock}>
@@ -511,8 +546,11 @@ const ChatTab = ({ messages: msgs, input, setInput, onSend, sending, planId, onV
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.background },
   inner: { flex: 1 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: theme.spacing.lg },
   backBtn: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: theme.spacing.xs, ...Platform.select({ web: { paddingTop: theme.spacing.lg } }) },
   backText: { ...theme.typography.body, color: theme.colors.primary, fontWeight: '700' },
+  shareBtn: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, borderWidth: 1, borderColor: theme.colors.primary + '55', marginTop: theme.spacing.md, ...Platform.select({ web: { marginTop: theme.spacing.sm } }) },
+  shareBtnText: { ...theme.typography.captionBold, color: theme.colors.primary, fontWeight: '700' },
   heroBlock: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.md, paddingTop: theme.spacing.xs },
   eyebrow: { fontFamily: theme.fonts.displayMedium, fontSize: 11, letterSpacing: 4, color: theme.colors.accent, textTransform: 'uppercase', marginBottom: 6 },
   title: { fontFamily: theme.fonts.display, fontSize: Platform.OS === 'web' ? 36 : 30, lineHeight: Platform.OS === 'web' ? 40 : 34, color: theme.colors.primaryDark, letterSpacing: -1.2, marginBottom: 6 },

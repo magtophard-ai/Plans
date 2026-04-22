@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import { randomBytes } from 'crypto';
 import { pool, query } from '../db/pool.js';
 import { insertNotification } from '../db/notifications.js';
+
+function newShareToken(): string {
+  return randomBytes(8).toString('hex');
+}
 
 async function getPlanFull(planId: string) {
   const plan = (await query('SELECT * FROM plans WHERE id = $1', [planId])).rows[0];
@@ -98,9 +103,9 @@ export async function planRoutes(app: FastifyInstance) {
       await client.query('BEGIN');
 
       const plan = (await client.query(
-        `INSERT INTO plans (creator_id, title, activity_type, linked_event_id, place_status, time_status, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, pre_meet_enabled, pre_meet_place_text, pre_meet_time)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-        [userId, title, activity_type || 'other', linked_event_id || null, place_status, time_status, confirmed_place_text || null, confirmed_place_lat || null, confirmed_place_lng || null, confirmed_time || null, pre_meet_enabled || false, pre_meet_place_text || null, pre_meet_time || null]
+        `INSERT INTO plans (creator_id, title, activity_type, linked_event_id, place_status, time_status, confirmed_place_text, confirmed_place_lat, confirmed_place_lng, confirmed_time, pre_meet_enabled, pre_meet_place_text, pre_meet_time, share_token)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+        [userId, title, activity_type || 'other', linked_event_id || null, place_status, time_status, confirmed_place_text || null, confirmed_place_lat || null, confirmed_place_lng || null, confirmed_time || null, pre_meet_enabled || false, pre_meet_place_text || null, pre_meet_time || null, newShareToken()]
       )).rows[0];
 
       await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [plan.id, userId]);
@@ -121,6 +126,71 @@ export async function planRoutes(app: FastifyInstance) {
     } finally {
       client.release();
     }
+  });
+
+  // Public preview by share token — no auth, minimal payload.
+  app.get('/by-token/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const plan = (await query('SELECT * FROM plans WHERE share_token = $1', [token])).rows[0];
+    if (!plan) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' });
+    const creator = (await query('SELECT id, name, username, avatar_url FROM users WHERE id = $1', [plan.creator_id])).rows[0];
+    const { rows: countRow } = await query('SELECT COUNT(*)::int AS c FROM plan_participants WHERE plan_id = $1', [plan.id]);
+    return {
+      plan: {
+        id: plan.id,
+        title: plan.title,
+        activity_type: plan.activity_type,
+        lifecycle_state: plan.lifecycle_state,
+        confirmed_place_text: plan.confirmed_place_text,
+        confirmed_time: plan.confirmed_time,
+        share_token: plan.share_token,
+        creator: creator || null,
+        participant_count: countRow[0]?.c ?? 0,
+        max_participants: 15,
+      },
+    };
+  });
+
+  // Join-by-link — authed. Adds caller as participant if plan is active + not full + caller not already in.
+  app.post('/by-token/:token/join', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
+    const userId = (request.user as any).userId;
+    const { token } = request.params as { token: string };
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const plan = (await client.query('SELECT * FROM plans WHERE share_token = $1 FOR UPDATE', [token])).rows[0];
+      if (!plan) { await client.query('ROLLBACK'); client.release(); return reply.code(404).send({ code: 'NOT_FOUND', message: 'Plan not found' }); }
+      if (plan.lifecycle_state !== 'active' && plan.lifecycle_state !== 'finalized') {
+        await client.query('ROLLBACK'); client.release();
+        return reply.code(400).send({ code: 'INVALID_STATE', message: 'Plan is not joinable' });
+      }
+
+      const existing = (await client.query('SELECT status FROM plan_participants WHERE plan_id = $1 AND user_id = $2', [plan.id, userId])).rows[0];
+      if (existing) {
+        await client.query('COMMIT');
+        client.release();
+        return { already_joined: true, plan: await getPlanFull(plan.id) };
+      }
+
+      const count = parseInt((await client.query('SELECT COUNT(*) as c FROM plan_participants WHERE plan_id = $1', [plan.id])).rows[0].c);
+      if (count >= 15) {
+        await client.query('ROLLBACK'); client.release();
+        return reply.code(409).send({ code: 'PLAN_FULL', message: 'Plan has max 15 participants' });
+      }
+
+      await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [plan.id, userId]);
+      const joinerName = (await client.query('SELECT name FROM users WHERE id = $1', [userId])).rows[0]?.name;
+      await insertNotification(plan.creator_id, 'plan_join_via_link', { plan_id: plan.id, joiner_id: userId, joiner_name: joinerName }, (sql, p) => client.query(sql, p));
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw err;
+    }
+    client.release();
+    return { already_joined: false, plan: await getPlanFull((await query('SELECT id FROM plans WHERE share_token = $1', [token])).rows[0].id) };
   });
 
   app.get('/:id', { preHandler: [(app as any).authenticate] }, async (request, reply) => {
@@ -539,8 +609,8 @@ export async function planRoutes(app: FastifyInstance) {
       await client.query('BEGIN');
 
       const newPlan = (await client.query(
-        `INSERT INTO plans (creator_id, title, activity_type, place_status, time_status, pre_meet_enabled) VALUES ($1, $2, $3, 'undecided', 'undecided', $4) RETURNING *`,
-        [userId, plan.title, plan.activity_type, false]
+        `INSERT INTO plans (creator_id, title, activity_type, place_status, time_status, pre_meet_enabled, share_token) VALUES ($1, $2, $3, 'undecided', 'undecided', $4, $5) RETURNING *`,
+        [userId, plan.title, plan.activity_type, false, newShareToken()]
       )).rows[0];
 
       await client.query("INSERT INTO plan_participants (plan_id, user_id, status) VALUES ($1, $2, 'going')", [newPlan.id, userId]);

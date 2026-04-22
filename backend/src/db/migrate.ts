@@ -76,6 +76,16 @@ async function migrate() {
   finalSql = finalSql.replace(/CREATE\s+INDEX\s+(?!IF\s+NOT\s+EXISTS)/gi, 'CREATE INDEX IF NOT EXISTS ');
   finalSql = finalSql.replace(/CREATE\s+EXTENSION\s+IF\s+NOT\s+EXISTS/gi, 'CREATE EXTENSION IF NOT EXISTS');
 
+  // Pre-apply additive column changes introduced after the initial schema, so
+  // that any later `CREATE INDEX` in 001_init.sql that references the new
+  // column finds it. Must run BEFORE executing init.sql statements.
+  const tablesResult = await pool.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'plans'`
+  );
+  if (tablesResult.rows.length > 0) {
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS share_token text`);
+  }
+
   // Handle constraint creation more gracefully
   console.log('Running filtered migration...');
 
@@ -107,6 +117,7 @@ async function migrate() {
   // fresh and already-initialized databases.
   const ENUM_ADDITIONS: Array<{ type: string; value: string }> = [
     { type: 'notification_type', value: 'friend_request' },
+    { type: 'notification_type', value: 'plan_join_via_link' },
   ];
   for (const { type, value } of ENUM_ADDITIONS) {
     try {
@@ -116,6 +127,30 @@ async function migrate() {
       throw err;
     }
   }
+
+  // Ensure unique index exists (init.sql's plain CREATE INDEX is non-unique; we
+  // also want a UNIQUE constraint for safe token lookup).
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_share_token_unique ON plans (share_token)`);
+  // Backfill tokens for rows created before this column existed.
+  const { rows: missing } = await pool.query(`SELECT id FROM plans WHERE share_token IS NULL`);
+  if (missing.length > 0) {
+    const { randomBytes } = await import('crypto');
+    for (const row of missing) {
+      let attempts = 0;
+      while (attempts < 5) {
+        const token = randomBytes(8).toString('hex');
+        try {
+          await pool.query(`UPDATE plans SET share_token = $1 WHERE id = $2 AND share_token IS NULL`, [token, row.id]);
+          break;
+        } catch (err: any) {
+          if (err.code === '23505') { attempts++; continue; } // unique_violation — retry
+          throw err;
+        }
+      }
+    }
+    console.log(`Backfilled share_token for ${missing.length} plans.`);
+  }
+
 
   console.log('Migration complete.');
   await pool.end();

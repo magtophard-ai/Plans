@@ -89,3 +89,26 @@ export const sendMessage = (planId: string, text: string, clientMessageId?: stri
 
 export const inviteParticipant = (planId: string, inviteeId: string) =>
   api(`/plans/${planId}/participants`, { method: 'POST', body: { user_id: inviteeId } });
+
+export interface PlanPreview {
+  id: string;
+  title: string;
+  activityType: string;
+  lifecycleState: string;
+  confirmedPlaceText: string | null;
+  confirmedTime: string | null;
+  shareToken: string;
+  creator: { id: string; name: string; username: string; avatarUrl: string | null } | null;
+  participantCount: number;
+  maxParticipants: number;
+}
+
+export const fetchPlanByToken = (token: string) =>
+  api<{ plan: PlanPreview }>(`/plans/by-token/${encodeURIComponent(token)}`).then((r) =>
+    camelize<{ plan: PlanPreview }>(r)
+  );
+
+export const joinPlanByToken = (token: string) =>
+  api<{ already_joined: boolean; plan: Plan }>(`/plans/by-token/${encodeURIComponent(token)}/join`, { method: 'POST' }).then((r) =>
+    camelize<{ alreadyJoined: boolean; plan: Plan }>(r)
+  );
