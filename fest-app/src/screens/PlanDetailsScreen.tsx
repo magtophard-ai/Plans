@@ -319,7 +319,7 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         {isCreator && !isCompleted && !isCancelled && (
           <View style={s.divider}>
             {plan.lifecycle_state === 'active' && plan.place_status === 'confirmed' && plan.time_status === 'confirmed' && (
-              <TouchableOpacity style={s.finalizeBtn} onPress={() => onFinalize(plan.id)}>
+              <TouchableOpacity style={s.finalizeBtn} onPress={() => { onFinalize(plan.id).catch(() => {}); }}>
                 <Text style={s.finalizeBtnText}>Подтвердить план</Text>
               </TouchableOpacity>
             )}
@@ -401,7 +401,7 @@ const ProposalCard = ({ proposal, userId, planId, onVote, onUnvote, isCreator, o
           <Text style={s.voteBtnText}>{hasVoted ? '✓' : '👍'} {voteCount}</Text>
         </TouchableOpacity>
         {isCreator && (
-          <TouchableOpacity style={s.pickBtn} onPress={() => onFinalize(planId, proposalType === 'place' ? proposal.id : undefined, proposalType === 'time' ? proposal.id : undefined)}>
+          <TouchableOpacity style={s.pickBtn} onPress={() => { onFinalize(planId, proposalType === 'place' ? proposal.id : undefined, proposalType === 'time' ? proposal.id : undefined).catch(() => {}); }}>
             <Text style={s.pickBtnText}>Выбрать</Text>
           </TouchableOpacity>
         )}
