@@ -43,6 +43,9 @@ const spacing = {
   xxxl: 36,
 } as const;
 
+const DISPLAY_FONT = 'Unbounded_700Bold';
+const DISPLAY_FONT_MEDIUM = 'Unbounded_500Medium';
+
 const typography = {
   h1: { fontSize: 28, fontWeight: '700' as const, lineHeight: 34 },
   h2: { fontSize: 22, fontWeight: '600' as const, lineHeight: 28 },
@@ -53,6 +56,15 @@ const typography = {
   caption: { fontSize: 13, fontWeight: '400' as const, lineHeight: 18 },
   captionBold: { fontSize: 13, fontWeight: '600' as const, lineHeight: 18 },
   small: { fontSize: 11, fontWeight: '400' as const, lineHeight: 16 },
+  displayHero: { fontFamily: DISPLAY_FONT, fontSize: 40, lineHeight: 46, letterSpacing: -1.2 },
+  displayLarge: { fontFamily: DISPLAY_FONT, fontSize: 32, lineHeight: 38, letterSpacing: -0.8 },
+  displayMedium: { fontFamily: DISPLAY_FONT, fontSize: 24, lineHeight: 30, letterSpacing: -0.4 },
+  displayEyebrow: { fontFamily: DISPLAY_FONT_MEDIUM, fontSize: 12, lineHeight: 16, letterSpacing: 1.6, textTransform: 'uppercase' as const },
+} as const;
+
+const fonts = {
+  display: DISPLAY_FONT,
+  displayMedium: DISPLAY_FONT_MEDIUM,
 } as const;
 
 const borderRadius = {
@@ -106,6 +118,7 @@ export const theme = {
   mobileSpacing: spacing,
   webSpacing,
   typography,
+  fonts,
   borderRadius,
   shadows,
   Platform,

@@ -11,6 +11,7 @@ import { subscribe, unsubscribe } from '../api/ws';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { PlansStackParamList } from '../navigation/types';
+import { Aurora, FadeIn, Pressable, Badge, TabIndicator, Tab, Confetti, hapticSuccess } from '../motion';
 
 type Props = NativeStackScreenProps<PlansStackParamList, 'PlanDetails'>;
 
@@ -35,6 +36,7 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const [sending, setSending] = useState(false);
   const [repeating, setRepeating] = useState(false);
   const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
+  const [confettiTrigger, setConfettiTrigger] = useState(false);
 
   React.useEffect(() => { fetchPlan(planId); }, [planId]);
   React.useEffect(() => { if (tab === 'chat') apiFetchMessages(planId); }, [tab, planId]);
@@ -47,8 +49,8 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
 
   const plan = plans.find((p) => p.id === planId);
   if (!plan || !user) {
-    if (planLoading) return <ScreenContainer><View style={s.inner}><ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /></View></ScreenContainer>;
-    return <ScreenContainer><View style={s.inner}><EmptyState text={planError || 'План не найден'} /></View></ScreenContainer>;
+    if (planLoading) return <View style={s.root}><Aurora /><ScreenContainer><View style={s.inner}><ActivityIndicator size="large" color={theme.colors.primary} style={s.loader} /></View></ScreenContainer></View>;
+    return <View style={s.root}><Aurora /><ScreenContainer><View style={s.inner}><EmptyState text={planError || 'План не найден'} /></View></ScreenContainer></View>;
   }
 
   const isCreator = plan.creator_id === user.id;
@@ -100,31 +102,35 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
   const inviteCandidates = friends.filter((friend) => !participantUserIds.has(friend.id));
 
   return (
-    <ScreenContainer>
+    <View style={s.root}>
+      <Aurora />
+      <ScreenContainer>
       <View style={s.inner}>
-          <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
+          <Pressable style={s.backBtn} onPress={() => navigation.goBack()} activeScale={0.92} hitSlop={12}>
             <Text style={s.backText}>← Назад</Text>
-          </TouchableOpacity>
+          </Pressable>
           {planError && <Text style={s.errorBanner}>{planError}</Text>}
-        <View style={s.headerRow}>
-          <Text style={s.title}>{plan.title}</Text>
-          <Text style={s.activity}>{ACTIVITY_LABELS[plan.activity_type]}</Text>
-        </View>
+        <FadeIn delay={60} direction="down" distance={14}>
+          <View style={s.heroBlock}>
+            <Text style={s.eyebrow}>{ACTIVITY_LABELS[plan.activity_type]}</Text>
+            <Text style={s.title}>{plan.title}</Text>
+            <Text style={s.heroMeta}>
+              {plan.participants?.length ?? 0} участников · {plan.lifecycle_state === 'finalized' ? '✓ Подтверждён' : plan.lifecycle_state === 'completed' ? 'Завершён' : 'Активный'}
+            </Text>
+          </View>
+        </FadeIn>
 
-        <View style={s.tabRow}>
-          <TouchableOpacity style={[s.tab, tab === 'details' && s.tabActive]} onPress={() => setTab('details')}>
-            <Text style={[s.tabText, tab === 'details' && s.tabTextActive]}>Детали</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.tab, tab === 'chat' && s.tabActive]} onPress={() => setTab('chat')}>
-            <Text style={[s.tabText, tab === 'chat' && s.tabTextActive]}>Чат</Text>
-          </TouchableOpacity>
-        </View>
+        <FadeIn delay={140} direction="up" distance={10}>
+          <AnimatedTabBar tab={tab} onChange={setTab} />
+        </FadeIn>
 
         {tab === 'details' ? (
-          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={apiVote} onUnvote={apiUnvote} onFinalize={apiFinalize} onUnfinalize={apiUnfinalize} onCancel={apiCancelPlan} onComplete={apiCompletePlan} onAddProposal={apiCreateProposal} onRepeat={handleRepeat} repeating={repeating} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} />
+          <DetailsTab plan={plan} isCreator={isCreator} myStatus={myParticipation?.status ?? 'invited'} onSetStatus={handleSetStatus} onVote={apiVote} onUnvote={apiUnvote} onFinalize={async (id, pId, tId) => { await apiFinalize(id, pId, tId); setConfettiTrigger(true); hapticSuccess(); }} onUnfinalize={apiUnfinalize} onCancel={apiCancelPlan} onComplete={apiCompletePlan} onAddProposal={apiCreateProposal} onRepeat={handleRepeat} repeating={repeating} onInvite={() => setShowInviteModal(true)} onRemove={isCreator ? handleRemoveParticipant : undefined} onLeave={!isCreator && myParticipation ? handleLeave : undefined} />
         ) : (
           <ChatTab messages={planMessages} input={chatInput} setInput={setChatInput} onSend={handleSend} sending={sending} planId={planId} onVote={apiVote} onUnvote={apiUnvote} userId={user.id} />
         )}
+
+        <Confetti trigger={confettiTrigger} pieces={40} />
 
         <Modal visible={showInviteModal} transparent animationType="slide" onRequestClose={() => setShowInviteModal(false)}>
           <View style={s.modalOverlay}>
@@ -159,7 +165,39 @@ export const PlanDetailsScreen = ({ route, navigation }: Props) => {
           </View>
         </Modal>
       </View>
-    </ScreenContainer>
+      </ScreenContainer>
+    </View>
+  );
+};
+
+const AnimatedTabBar = ({ tab, onChange }: { tab: 'details' | 'chat'; onChange: (t: 'details' | 'chat') => void }) => {
+  const [barWidth, setBarWidth] = React.useState(0);
+  const activeIndex = tab === 'details' ? 0 : 1;
+  return (
+    <View
+      style={s.tabRow}
+      onLayout={(e) => setBarWidth(e.nativeEvent.layout.width - 8)}
+    >
+      <View style={s.tabsInner}>
+        <TabIndicator
+          count={2}
+          activeIndex={activeIndex}
+          containerWidth={barWidth}
+          color={theme.colors.primary}
+          style={s.tabIndicator}
+        />
+        <Pressable style={s.tab} onPress={() => onChange('details')} activeScale={0.97}>
+          <Tab active={tab === 'details'}>
+            <Text style={[s.tabText, tab === 'details' && s.tabTextActive]}>Детали</Text>
+          </Tab>
+        </Pressable>
+        <Pressable style={s.tab} onPress={() => onChange('chat')} activeScale={0.97}>
+          <Tab active={tab === 'chat'}>
+            <Text style={[s.tabText, tab === 'chat' && s.tabTextActive]}>Чат</Text>
+          </Tab>
+        </Pressable>
+      </View>
+    </View>
   );
 };
 
@@ -235,18 +273,20 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
             </TouchableOpacity>
           )}
         </View>
-        {plan.participants?.map((p) => (
-          <View key={p.id} style={s.participantRow}>
-            <Text style={s.participantName}>{p.user?.name ?? '???'}{p.user_id === plan.creator_id ? ' (создатель)' : ''}</Text>
-            <View style={s.participantRight}>
-              <Text style={[s.statusBadge, { backgroundColor: STATUS_COLORS[p.status] + '22', color: STATUS_COLORS[p.status] }]}>{STATUS_LABELS[p.status]}</Text>
-              {isCreator && p.user_id !== plan.creator_id && onRemove && (
-                <TouchableOpacity onPress={() => onRemove(p.user_id)} style={s.removeBtn}>
-                  <Text style={s.removeBtnText}>✕</Text>
-                </TouchableOpacity>
-              )}
+        {plan.participants?.map((p, i) => (
+          <FadeIn key={p.id} delay={i * 40} direction="up" distance={8}>
+            <View style={s.participantRow}>
+              <Text style={s.participantName}>{p.user?.name ?? '???'}{p.user_id === plan.creator_id ? ' (создатель)' : ''}</Text>
+              <View style={s.participantRight}>
+                <Badge label={STATUS_LABELS[p.status]} color={STATUS_COLORS[p.status]} pulse={p.status === 'going'} />
+                {isCreator && p.user_id !== plan.creator_id && onRemove && (
+                  <Pressable onPress={() => onRemove(p.user_id)} style={s.removeBtn} activeScale={0.85} hitSlop={8}>
+                    <Text style={s.removeBtnText}>✕</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-          </View>
+          </FadeIn>
         ))}
         {onLeave && !isCompleted && !isCancelled && (
           <TouchableOpacity style={s.leaveBtn} onPress={onLeave}>
@@ -260,9 +300,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
             <Text style={s.sectionTitle}>Ваш статус</Text>
             <View style={s.statusRow}>
               {statusBtns.map((btn) => (
-                <TouchableOpacity key={btn.key} style={[s.statusBtn, myStatus === btn.key && { backgroundColor: STATUS_COLORS[btn.key] + '22', borderColor: STATUS_COLORS[btn.key] }]} onPress={() => onSetStatus(btn.key)}>
-                  <Text style={[s.statusBtnText, myStatus === btn.key && { color: STATUS_COLORS[btn.key] }]}>{btn.label}</Text>
-                </TouchableOpacity>
+                <Pressable key={btn.key} style={[s.statusBtn, myStatus === btn.key && { backgroundColor: STATUS_COLORS[btn.key] + '22', borderColor: STATUS_COLORS[btn.key] }]} onPress={() => onSetStatus(btn.key)} activeScale={0.94}>
+                  <Text style={[s.statusBtnText, myStatus === btn.key && { color: STATUS_COLORS[btn.key], fontWeight: '700' }]}>{btn.label}</Text>
+                </Pressable>
               ))}
             </View>
           </>
@@ -319,23 +359,23 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         {isCreator && !isCompleted && !isCancelled && (
           <View style={s.divider}>
             {plan.lifecycle_state === 'active' && plan.place_status === 'confirmed' && plan.time_status === 'confirmed' && (
-              <TouchableOpacity style={s.finalizeBtn} onPress={() => { onFinalize(plan.id).catch(() => {}); }}>
-                <Text style={s.finalizeBtnText}>Подтвердить план</Text>
-              </TouchableOpacity>
+              <Pressable style={s.finalizeBtn} onPress={() => { onFinalize(plan.id).catch(() => {}); }} activeScale={0.96}>
+                <Text style={s.finalizeBtnText}>✨ Подтвердить план</Text>
+              </Pressable>
             )}
             {plan.lifecycle_state === 'finalized' && (
-              <TouchableOpacity style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)}>
+              <Pressable style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)} activeScale={0.96}>
                 <Text style={s.unfinalizeBtnText}>Отменить подтверждение</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
             {plan.lifecycle_state === 'active' && !(plan.place_status === 'confirmed' && plan.time_status === 'confirmed') && (
-              <TouchableOpacity style={s.completeBtn} onPress={() => onComplete(plan.id)}>
+              <Pressable style={s.completeBtn} onPress={() => onComplete(plan.id)} activeScale={0.96}>
                 <Text style={s.completeBtnText}>Завершить план</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
-            <TouchableOpacity style={s.cancelBtn} onPress={() => onCancel(plan.id)}>
+            <Pressable style={s.cancelBtn} onPress={() => onCancel(plan.id)} activeScale={0.96}>
               <Text style={s.cancelBtnText}>Отменить план</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
@@ -346,9 +386,9 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
         )}
 
         {isCompleted && (
-          <TouchableOpacity style={[s.repeatBtn, repeating && s.btnDisabled]} onPress={onRepeat} disabled={repeating}>
-            <Text style={s.repeatBtnText}>{repeating ? '...' : 'Повторить'}</Text>
-          </TouchableOpacity>
+          <Pressable style={[s.repeatBtn, repeating && s.btnDisabled]} onPress={onRepeat} disabled={repeating} activeScale={0.96}>
+            <Text style={s.repeatBtnText}>{repeating ? '...' : '↻ Повторить'}</Text>
+          </Pressable>
         )}
       </ScrollView>
 
@@ -463,17 +503,21 @@ const ChatTab = ({ messages: msgs, input, setInput, onSend, sending, planId, onV
 };
 
 const s = StyleSheet.create({
-  inner: { flex: 1, backgroundColor: theme.colors.background },
+  root: { flex: 1, backgroundColor: theme.colors.background },
+  inner: { flex: 1 },
   backBtn: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: theme.spacing.xs, ...Platform.select({ web: { paddingTop: theme.spacing.lg } }) },
-  backText: { ...theme.typography.body, color: theme.colors.primary },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
-  title: { ...theme.typography.h3, color: theme.colors.textPrimary, flex: 1 },
-  activity: { ...theme.typography.caption, color: theme.colors.primary, backgroundColor: theme.colors.primaryLight + '22', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full },
-  tabRow: { flexDirection: 'row', paddingHorizontal: theme.spacing.lg, marginBottom: theme.spacing.sm, gap: theme.spacing.sm },
-  tab: { paddingVertical: theme.spacing.sm, paddingHorizontal: theme.spacing.lg, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.surface },
-  tabActive: { backgroundColor: theme.colors.primary },
-  tabText: { ...theme.typography.caption, color: theme.colors.textSecondary },
-  tabTextActive: { color: theme.colors.textInverse, fontWeight: '600' },
+  backText: { ...theme.typography.body, color: theme.colors.primary, fontWeight: '700' },
+  heroBlock: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.md, paddingTop: theme.spacing.xs },
+  eyebrow: { fontFamily: theme.fonts.displayMedium, fontSize: 11, letterSpacing: 4, color: theme.colors.accent, textTransform: 'uppercase', marginBottom: 6 },
+  title: { fontFamily: theme.fonts.display, fontSize: Platform.OS === 'web' ? 36 : 30, lineHeight: Platform.OS === 'web' ? 40 : 34, color: theme.colors.primaryDark, letterSpacing: -1.2, marginBottom: 6 },
+  heroMeta: { fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary, letterSpacing: 0.1 },
+  tabRow: { marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md, backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: theme.borderRadius.full, padding: 4, borderWidth: 1, borderColor: 'rgba(108,92,231,0.15)', ...Platform.select({ web: { backdropFilter: 'blur(16px)' } as any }) },
+  tabsInner: { flexDirection: 'row', position: 'relative' },
+  tabIndicator: { top: 0, bottom: 0, height: '100%' },
+  tab: { flex: 1, paddingVertical: theme.spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: theme.borderRadius.full },
+  tabActive: { backgroundColor: 'transparent' },
+  tabText: { ...theme.typography.caption, color: theme.colors.textSecondary, fontWeight: '600' },
+  tabTextActive: { color: theme.colors.textInverse, fontWeight: '700' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl, ...Platform.select({ web: { paddingBottom: theme.spacing.xxl } }) },
   linkedEvent: { backgroundColor: theme.colors.primaryLight + '15', borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.lg },

@@ -72,12 +72,19 @@ export const api = async <T>(path: string, options: { method?: string; body?: un
 
 const toCamel = (s: string) => s.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
 
+// Keep BOTH snake_case and camelCase keys on every object.
+// - Frontend types in src/types are declared snake_case (matches backend).
+// - Most screens/stores read snake_case; a few legacy spots read camelCase.
+// Duplicating keys makes both styles work without a project-wide refactor.
 export const camelize = <T>(obj: unknown): T => {
   if (Array.isArray(obj)) return obj.map((v) => camelize(v)) as T;
   if (obj !== null && typeof obj === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      out[toCamel(k)] = camelize(v);
+      const recursed = camelize(v);
+      out[k] = recursed;
+      const camel = toCamel(k);
+      if (camel !== k) out[camel] = recursed;
     }
     return out as T;
   }

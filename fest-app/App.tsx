@@ -2,7 +2,8 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text, StyleSheet, Platform } from 'react-native';
+import { Text, StyleSheet, Platform, View, ActivityIndicator } from 'react-native';
+import { useFonts, Unbounded_500Medium, Unbounded_700Bold } from '@expo-google-fonts/unbounded';
 import { theme } from './src/theme';
 import { useAuthStore } from './src/stores/authStore';
 import { AuthScreen } from './src/screens/AuthScreen';
@@ -76,7 +77,15 @@ const AppNavigator = () => (
 
 export default function App() {
   const isAuthenticated = useAuthStore((s: { isAuthenticated: boolean }) => s.isAuthenticated);
+  const [fontsLoaded] = useFonts({ Unbounded_500Medium, Unbounded_700Bold });
 
+  if (!fontsLoaded) {
+    return (
+      <View style={s.fontLoader}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
   if (!isAuthenticated) return <AuthScreen />;
   return <AppNavigator />;
 }
@@ -84,4 +93,5 @@ export default function App() {
 const s = StyleSheet.create({
   tabIcon: { fontSize: 20 },
   createIcon: { fontSize: 28, fontWeight: '700', color: theme.colors.primary },
+  fontLoader: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background },
 });
