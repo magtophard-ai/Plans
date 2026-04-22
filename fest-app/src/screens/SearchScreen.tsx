@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, FlatList, Image, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { theme } from '../theme';
 import { formatDateShort } from '../utils/dates';
@@ -7,6 +7,7 @@ import { CATEGORY_CHIPS } from '../utils/constants';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { searchEvents } from '../api/search';
+import { Aurora, FadeIn, Pressable, Tilt } from '../motion';
 import type { Event, EventCategory } from '../types';
 
 type DateFilter = null | 'today' | 'week' | 'weekend';
@@ -88,6 +89,7 @@ export const SearchScreen = () => {
       }
     }, 300);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, catFilter, dateFilter]);
 
   const goToEvent = (eventId: string) => {
@@ -97,59 +99,129 @@ export const SearchScreen = () => {
     });
   };
 
-  const renderItem = ({ item }: { item: Event }) => (
-    <TouchableOpacity style={s.resultCard} onPress={() => goToEvent(item.id)} activeOpacity={0.7}>
-      <Image source={{ uri: item.cover_image_url }} style={s.resultImage} />
-      <View style={s.resultBody}>
-        <Text style={s.resultTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={s.resultVenue} numberOfLines={1}>{item.venue?.name}</Text>
-        <Text style={s.resultMeta}>{formatDateShort(item.starts_at)}</Text>
-      </View>
-    </TouchableOpacity>
+  const renderItem = ({ item, index }: { item: Event; index: number }) => (
+    <FadeIn delay={40 + index * 35} distance={12}>
+      <Tilt maxTilt={4} liftOnHover={3}>
+        <Pressable style={s.resultCard} onPress={() => goToEvent(item.id)} activeScale={0.97}>
+          <Image source={{ uri: item.cover_image_url }} style={s.resultImage} />
+          <View style={s.resultBody}>
+            <Text style={s.resultTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={s.resultVenue} numberOfLines={1}>{item.venue?.name}</Text>
+            <Text style={s.resultMeta}>{formatDateShort(item.starts_at)}</Text>
+          </View>
+        </Pressable>
+      </Tilt>
+    </FadeIn>
   );
 
   return (
-    <ScreenContainer>
-      <View style={s.inner}>
-        <View style={s.searchRow}>
-          <TextInput style={s.searchInput} placeholder="Поиск мероприятий, мест..." placeholderTextColor={theme.colors.textTertiary} value={query} onChangeText={setQuery} onSubmitEditing={doSearch} returnKeyType="search" />
+    <View style={s.root}>
+      <Aurora />
+      <ScreenContainer>
+        <View style={s.inner}>
+          <FadeIn delay={40} direction="down" distance={10}>
+            <View style={s.hero}>
+              <Text style={s.eyebrow}>Поиск</Text>
+              <Text style={s.heroTitle}>Что будем{'\n'}искать?</Text>
+            </View>
+          </FadeIn>
+
+          <FadeIn delay={120}>
+            <View style={s.searchRow}>
+              <Text style={s.searchIcon}>⌕</Text>
+              <TextInput
+                style={s.searchInput}
+                placeholder="Мероприятия, места..."
+                placeholderTextColor={theme.colors.textTertiary}
+                value={query}
+                onChangeText={setQuery}
+                onSubmitEditing={doSearch}
+                returnKeyType="search"
+              />
+            </View>
+          </FadeIn>
+
+          <FadeIn delay={180}>
+            <View style={s.chipsRow}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={CATEGORY_CHIPS}
+                keyExtractor={(c) => String(c.key ?? 'all')}
+                contentContainerStyle={s.chipList}
+                renderItem={({ item: chip }) => (
+                  <Pressable
+                    style={[s.chip, catFilter === chip.key && s.chipActive]}
+                    onPress={() => setCatFilter(chip.key)}
+                    activeScale={0.92}
+                  >
+                    <Text style={[s.chipText, catFilter === chip.key && s.chipTextActive]}>{chip.label}</Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+          </FadeIn>
+
+          <FadeIn delay={220}>
+            <View style={s.chipsRow}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={DATE_OPTIONS}
+                keyExtractor={(d) => String(d.key ?? 'any')}
+                contentContainerStyle={s.chipList}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[s.chip, dateFilter === item.key && s.chipActive]}
+                    onPress={() => setDateFilter(item.key)}
+                    activeScale={0.92}
+                  >
+                    <Text style={[s.chipText, dateFilter === item.key && s.chipTextActive]}>{item.label}</Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+          </FadeIn>
+
+          {error ? <Text style={s.errorBanner}>{error}</Text> : null}
+          {searched ? (
+            <Text style={s.resultCount}>{total} мероприяти{total === 1 ? 'е' : total < 5 ? 'я' : 'й'}</Text>
+          ) : null}
+
+          <FlatList
+            data={results}
+            keyExtractor={(e) => e.id}
+            renderItem={renderItem}
+            contentContainerStyle={s.list}
+            ListEmptyComponent={searched && !loading ? <EmptyState text="Ничего не найдено" /> : null}
+            showsVerticalScrollIndicator={false}
+            refreshing={loading}
+            onRefresh={doSearch}
+          />
         </View>
-        <View style={s.chipsRow}>
-          <FlatList horizontal showsHorizontalScrollIndicator={false} data={CATEGORY_CHIPS} keyExtractor={(c) => String(c.key ?? 'all')} renderItem={({ item: chip }) => (
-            <TouchableOpacity style={[s.chip, catFilter === chip.key && s.chipActive]} onPress={() => setCatFilter(chip.key)}>
-              <Text style={[s.chipText, catFilter === chip.key && s.chipTextActive]}>{chip.label}</Text>
-            </TouchableOpacity>
-          )} />
-        </View>
-        <View style={s.chipsRow}>
-          <FlatList horizontal showsHorizontalScrollIndicator={false} data={DATE_OPTIONS} keyExtractor={(d) => String(d.key ?? 'any')} renderItem={({ item }) => (
-            <TouchableOpacity style={[s.chip, dateFilter === item.key && s.chipActive]} onPress={() => setDateFilter(item.key)}>
-              <Text style={[s.chipText, dateFilter === item.key && s.chipTextActive]}>{item.label}</Text>
-            </TouchableOpacity>
-          )} />
-        </View>
-        {error && <Text style={s.errorBanner}>{error}</Text>}
-        {searched && (
-          <Text style={s.resultCount}>{total} мероприяти{total === 1 ? 'е' : total < 5 ? 'я' : 'й'}</Text>
-        )}
-        <FlatList data={results} keyExtractor={(e) => e.id} renderItem={renderItem} contentContainerStyle={s.list} ListEmptyComponent={searched && !loading ? <EmptyState text="Ничего не найдено" /> : null} showsVerticalScrollIndicator={false} refreshing={loading} onRefresh={doSearch} />
-      </View>
-    </ScreenContainer>
+      </ScreenContainer>
+    </View>
   );
 };
 
 const s = StyleSheet.create({
-  inner: { flex: 1, backgroundColor: theme.colors.background },
-  searchRow: { margin: theme.spacing.lg },
-  searchInput: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing.lg, paddingVertical: Platform.select({ web: theme.spacing.sm, default: theme.spacing.md }), fontSize: 16, color: theme.colors.textPrimary, borderWidth: 1, borderColor: theme.colors.borderLight, ...theme.shadows.sm },
-  chipsRow: { paddingHorizontal: theme.spacing.lg, marginBottom: theme.spacing.xs },
-  chip: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.sm, marginRight: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border },
-  chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  chipText: { ...theme.typography.caption, color: theme.colors.textSecondary },
-  chipTextActive: { color: theme.colors.textInverse },
-  resultCount: { ...theme.typography.caption, color: theme.colors.textTertiary, paddingHorizontal: theme.spacing.lg, marginBottom: theme.spacing.sm },
+  root: { flex: 1, backgroundColor: theme.colors.background },
+  inner: { flex: 1 },
+  hero: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: theme.spacing.md, ...Platform.select({ web: { paddingTop: theme.spacing.lg } }) },
+  eyebrow: { fontFamily: theme.fonts.displayMedium, fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: theme.colors.accent, marginBottom: 6 },
+  heroTitle: { fontFamily: theme.fonts.display, fontSize: Platform.OS === 'web' ? 38 : 32, lineHeight: Platform.OS === 'web' ? 42 : 36, color: theme.colors.primaryDark, letterSpacing: -1.2 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md, backgroundColor: 'rgba(255,255,255,0.82)', borderRadius: theme.borderRadius.full, borderWidth: 1, borderColor: 'rgba(108,92,231,0.2)', paddingHorizontal: theme.spacing.lg, ...theme.shadows.sm, ...Platform.select({ web: { backdropFilter: 'blur(12px)' } as any }) },
+  searchIcon: { fontSize: 18, color: theme.colors.primary, marginRight: theme.spacing.sm },
+  searchInput: { flex: 1, paddingVertical: Platform.select({ web: theme.spacing.sm, default: theme.spacing.md }), fontSize: 16, color: theme.colors.textPrimary },
+  chipsRow: { paddingLeft: theme.spacing.lg, marginBottom: theme.spacing.xs },
+  chipList: { paddingRight: theme.spacing.lg, gap: theme.spacing.sm },
+  chip: { backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.sm, borderWidth: 1, borderColor: 'rgba(108,92,231,0.18)' },
+  chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary, ...theme.shadows.sm },
+  chipText: { ...theme.typography.caption, color: theme.colors.textSecondary, fontWeight: '600' },
+  chipTextActive: { color: theme.colors.textInverse, fontWeight: '700' },
+  resultCount: { ...theme.typography.caption, color: theme.colors.textTertiary, paddingHorizontal: theme.spacing.lg, marginTop: theme.spacing.sm, marginBottom: theme.spacing.sm },
   list: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl },
-  resultCard: { flexDirection: 'row', backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, marginBottom: theme.spacing.sm, overflow: 'hidden', ...theme.shadows.sm },
+  resultCard: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.82)', borderRadius: theme.borderRadius.lg, marginBottom: theme.spacing.sm, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(108,92,231,0.12)', ...theme.shadows.sm, ...Platform.select({ web: { backdropFilter: 'blur(10px)' } as any }) },
   resultImage: { width: Platform.select({ web: 80, default: 100 }), height: Platform.select({ web: 72, default: 90 }) },
   resultBody: { flex: 1, padding: Platform.select({ web: theme.spacing.sm, default: theme.spacing.md }), justifyContent: 'center' },
   resultTitle: { ...theme.typography.bodyBold, color: theme.colors.textPrimary, marginBottom: 2 },
