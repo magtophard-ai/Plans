@@ -1,18 +1,31 @@
+// Stash for a deep-link share token seen pre-auth so we can navigate to
+// PublicPlan right after the user signs in.
+//
+// Web: persist to localStorage so the token survives a page reload (OTP flow
+// can re-render the app).
+// Native (iOS / Android): React Native has no `localStorage`. The in-memory
+// fallback works because the app process stays alive during the OTP flow.
+// AsyncStorage isn't needed because (a) cold-start with a deep link is
+// re-delivered by Linking.getInitialURL() in App.tsx, and (b) a warm-start
+// deep link re-invokes `usePendingJoinCapture` which will re-stash the token.
 const KEY = 'fest_pending_join_token';
+let inMemoryToken: string | null = null;
+
+const hasLocalStorage = () => typeof localStorage !== 'undefined';
 
 export function setPendingJoinToken(token: string) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(KEY, token);
+  inMemoryToken = token;
+  if (hasLocalStorage()) localStorage.setItem(KEY, token);
 }
 
 export function getPendingJoinToken(): string | null {
-  if (typeof localStorage === 'undefined') return null;
-  return localStorage.getItem(KEY);
+  if (hasLocalStorage()) return localStorage.getItem(KEY);
+  return inMemoryToken;
 }
 
 export function clearPendingJoinToken() {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(KEY);
+  inMemoryToken = null;
+  if (hasLocalStorage()) localStorage.removeItem(KEY);
 }
 
 /**
