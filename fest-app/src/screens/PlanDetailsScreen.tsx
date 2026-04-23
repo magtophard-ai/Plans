@@ -532,7 +532,7 @@ const ChatTab = ({ messages: msgs, input, setInput, onSend, sending, planId, onV
             <Text style={s.msgText}>{item.text}</Text>
           </View>
         );
-      }} contentContainerStyle={s.chatList} inverted ListEmptyComponent={<EmptyState text="Нет сообщений" />} keyboardShouldPersistTaps="handled" />
+      }} contentContainerStyle={s.chatList} inverted ListEmptyComponent={<View style={{ flex: 1, transform: [{ scaleY: -1 }] }}><EmptyState text="Нет сообщений" /></View>} keyboardShouldPersistTaps="handled" />
       <View style={s.chatInputRow}>
         <TextInput style={s.chatInput} placeholder="Сообщение..." placeholderTextColor={theme.colors.textTertiary} value={input} onChangeText={setInput} returnKeyType="send" onSubmitEditing={onSend} />
         <TouchableOpacity style={[s.sendBtn, sending && s.btnDisabled]} onPress={onSend} disabled={sending}>

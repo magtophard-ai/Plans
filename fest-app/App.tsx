@@ -7,6 +7,7 @@ import { NavigationContainer, createNavigationContainerRef, type LinkingOptions 
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, StyleSheet, Platform, View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { useFonts, Unbounded_500Medium, Unbounded_700Bold } from '@expo-google-fonts/unbounded';
 import { theme } from './src/theme';
@@ -173,15 +174,19 @@ export default function App() {
   const restoring = useAuthStore((s: { restoring: boolean }) => s.restoring);
   const [fontsLoaded] = useFonts({ Unbounded_500Medium, Unbounded_700Bold });
 
+  let content: React.ReactNode;
   if (!fontsLoaded || restoring) {
-    return (
+    content = (
       <View style={s.fontLoader}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
+  } else if (!isAuthenticated) {
+    content = <UnauthenticatedShell />;
+  } else {
+    content = <AppNavigator />;
   }
-  if (!isAuthenticated) return <UnauthenticatedShell />;
-  return <AppNavigator />;
+  return <SafeAreaProvider>{content}</SafeAreaProvider>;
 }
 
 const s = StyleSheet.create({

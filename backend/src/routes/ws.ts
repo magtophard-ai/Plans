@@ -43,6 +43,7 @@ export async function wsRoutes(app: FastifyInstance) {
       let msg: any;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
 
+      try {
       if (msg.type === 'auth') {
         try {
           const decoded = app.jwt.verify(msg.token) as any;
@@ -85,6 +86,10 @@ export async function wsRoutes(app: FastifyInstance) {
         const ch = msg.channel;
         if (ch.startsWith('plan:')) {
           const planId = ch.slice(5);
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(planId)) {
+            send({ type: 'error', message: 'Invalid plan id' });
+            return;
+          }
           const allowed = await canSubscribePlan(userId, planId);
           if (!allowed) {
             send({ type: 'error', message: 'Not a participant of this plan' });
@@ -112,6 +117,10 @@ export async function wsRoutes(app: FastifyInstance) {
       }
 
       send({ type: 'error', message: 'Unknown message type' });
+      } catch (err) {
+        app.log.error({ err }, 'ws message handler failed');
+        send({ type: 'error', message: 'Internal error' });
+      }
     });
 
     socket.on('close', () => {

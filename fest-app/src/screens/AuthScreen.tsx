@@ -310,8 +310,10 @@ const s = StyleSheet.create({
   inputOtp: {
     letterSpacing: 10,
     fontSize: 26,
+    lineHeight: 34,
     fontWeight: '700',
     textAlign: 'center',
+    paddingVertical: theme.spacing.lg,
   },
   primaryBtn: {
     backgroundColor: theme.colors.primary,

@@ -128,6 +128,9 @@ async function migrate() {
     }
   }
 
+  // Additive column migrations introduced after 001_init.sql.
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_message_id text`);
+
   // Ensure unique index exists (init.sql's plain CREATE INDEX is non-unique; we
   // also want a UNIQUE constraint for safe token lookup).
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_share_token_unique ON plans (share_token)`);
