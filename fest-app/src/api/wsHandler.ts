@@ -34,6 +34,18 @@ export function initWsHandler() {
         usePlansStore.getState().fetchPlan(planId);
         usePlansStore.getState().apiFetchMessages(planId);
       }
+
+      if (
+        event === 'plan.cancelled' ||
+        event === 'plan.completed' ||
+        event === 'plan.participant.added' ||
+        event === 'plan.participant.updated' ||
+        event === 'plan.participant.removed'
+      ) {
+        // Lifecycle + participant changes aren't merged in-place yet; refetch
+        // the plan to keep local state consistent across participants.
+        usePlansStore.getState().fetchPlan(planId);
+      }
     }
 
     if (channel.startsWith('user:') && event === 'notification.created') {

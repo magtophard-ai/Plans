@@ -166,9 +166,10 @@ const UnauthenticatedShell = () => {
 
 export default function App() {
   const isAuthenticated = useAuthStore((s: { isAuthenticated: boolean }) => s.isAuthenticated);
+  const restoring = useAuthStore((s: { restoring: boolean }) => s.restoring);
   const [fontsLoaded] = useFonts({ Unbounded_500Medium, Unbounded_700Bold });
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || restoring) {
     return (
       <View style={s.fontLoader}>
         <ActivityIndicator size="large" color={theme.colors.primary} />

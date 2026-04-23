@@ -1,9 +1,17 @@
 import { create } from 'zustand';
 import type { User } from '../types';
 import * as authApi from '../api/auth';
+import * as usersApi from '../api/users';
 import { setToken } from '../api/client';
 import { startWs, stopWs } from '../api/ws';
 import { initWsHandler } from '../api/wsHandler';
+import { loadTokens, saveTokens, clearTokens } from '../utils/authStorage';
+
+interface UpdateProfileInput {
+  name?: string;
+  username?: string;
+  avatar_url?: string | null;
+}
 
 interface AuthState {
   user: User | null;
@@ -12,14 +20,13 @@ interface AuthState {
   phone: string;
   loading: boolean;
   error: string | null;
+  restoring: boolean;
   clearError: () => void;
   sendOtp: (phone: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  updateProfile: (patch: UpdateProfileInput) => Promise<void>;
 }
-
-const TOKEN_KEY = 'fest_auth_token';
-const REFRESH_KEY = 'fest_refresh_token';
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -28,6 +35,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   phone: '',
   loading: false,
   error: null,
+  restoring: true,
 
   clearError: () => set({ error: null }),
 
@@ -47,10 +55,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res = await authApi.verifyOtp(phone, code);
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(TOKEN_KEY, res.accessToken);
-        localStorage.setItem(REFRESH_KEY, res.refreshToken);
-      }
+      await saveTokens(res.accessToken, res.refreshToken);
       set({ user: res.user, isAuthenticated: true, otpSent: false, loading: false });
       initWsHandler();
       startWs();
@@ -60,31 +65,46 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
     stopWs();
     setToken(null);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-    }
+    await clearTokens();
     set({ user: null, isAuthenticated: false, otpSent: false, phone: '' });
+  },
+
+  updateProfile: async (patch) => {
+    set({ error: null });
+    try {
+      const user = await usersApi.updateMe(patch);
+      set({ user });
+    } catch (e: any) {
+      set({ error: e?.message || 'Не удалось сохранить профиль' });
+      throw e;
+    }
   },
 }));
 
 const tryRestore = async () => {
-  if (typeof localStorage === 'undefined') return;
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) return;
-  setToken(token);
   try {
-    const user = await authApi.fetchMe();
-    useAuthStore.setState({ user, isAuthenticated: true });
-    initWsHandler();
-    startWs();
+    const { access } = await loadTokens();
+    if (!access) {
+      useAuthStore.setState({ restoring: false });
+      return;
+    }
+    setToken(access);
+    try {
+      const user = await authApi.fetchMe();
+      useAuthStore.setState({ user, isAuthenticated: true, restoring: false });
+      initWsHandler();
+      startWs();
+    } catch {
+      await clearTokens();
+      setToken(null);
+      useAuthStore.setState({ restoring: false });
+    }
   } catch {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
+    useAuthStore.setState({ restoring: false });
   }
 };
 
-tryRestore();
+void tryRestore();

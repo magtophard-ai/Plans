@@ -92,6 +92,22 @@ export async function invitationRoutes(app: FastifyInstance) {
     let plan = null, group = null;
     if (updated.type === 'plan') plan = (await query('SELECT id, title, activity_type, lifecycle_state, creator_id, created_at FROM plans WHERE id = $1', [updated.target_id])).rows[0] || null;
     if (updated.type === 'group') group = (await query('SELECT id, name, creator_id, avatar_url, created_at FROM groups WHERE id = $1', [updated.target_id])).rows[0] || null;
+
+    if (updated.type === 'plan') {
+      const r = (await query(
+        `SELECT pp.*, u.id as u_id, u.phone as u_phone, u.name as u_name, u.username as u_username, u.avatar_url as u_avatar, u.created_at as u_created
+         FROM plan_participants pp JOIN users u ON pp.user_id = u.id WHERE pp.plan_id = $1 AND pp.user_id = $2`,
+        [updated.target_id, userId]
+      )).rows[0];
+      if (r) {
+        const participant = {
+          id: r.id, plan_id: r.plan_id, user_id: r.user_id, status: r.status, joined_at: r.joined_at,
+          user: { id: r.u_id, phone: r.u_phone, name: r.u_name, username: r.u_username, avatar_url: r.u_avatar, created_at: r.u_created },
+        };
+        (app as any).wsEmit(`plan:${updated.target_id}`, 'plan.participant.added', { plan_id: updated.target_id, participant });
+      }
+    }
+
     return { invitation: { ...updated, plan, group } };
   });
 }

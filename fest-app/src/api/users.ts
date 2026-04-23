@@ -19,6 +19,15 @@ export const fetchFriends = (q: FriendsQuery = {}) => {
 export const fetchUser = (id: string) =>
   api<{ user: User }>(`/users/${id}`).then((r) => camelize<User>(r.user));
 
+type UpdateMeInput = {
+  name?: string;
+  username?: string;
+  avatar_url?: string | null;
+};
+
+export const updateMe = (patch: UpdateMeInput) =>
+  api<{ user: User }>(`/users/me`, { method: 'PATCH', body: patch }).then((r) => camelize<User>(r.user));
+
 export const searchUsers = (q: string, limit = 20) => {
   const qs = `?q=${encodeURIComponent(q)}&limit=${limit}`;
   return api<{ users: User[] }>(`/users/search${qs}`).then((r) => camelize<User[]>(r.users));

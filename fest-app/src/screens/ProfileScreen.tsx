@@ -12,6 +12,7 @@ import { Aurora, FadeIn, Stagger, Pressable, Tilt } from '../motion';
 export const ProfileScreen = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
   const { events, savedIds } = useEventsStore();
   const {
     friends, loading: friendsLoading, error: friendsError, fetchFriends,
@@ -23,6 +24,9 @@ export const ProfileScreen = () => {
   const [showFriends, setShowFriends] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [editName, setEditName] = React.useState(user?.name ?? '');
+  const [editUsername, setEditUsername] = React.useState(user?.username ?? '');
+  const [savingProfile, setSavingProfile] = React.useState(false);
+  const [profileError, setProfileError] = React.useState<string | null>(null);
   const [localQuery, setLocalQuery] = React.useState('');
   const [mutatingId, setMutatingId] = React.useState<string | null>(null);
   const navigation = useNavigation();
@@ -63,8 +67,47 @@ export const ProfileScreen = () => {
     try { await declineFriendRequest(friendId); } catch {} finally { setMutatingId(null); }
   };
 
-  const handleSaveProfile = () => {
+  const handleStartEditing = () => {
+    setEditName(user?.name ?? '');
+    setEditUsername(user?.username ?? '');
+    setProfileError(null);
+    setEditing(true);
+  };
+
+  const handleCancelEditing = () => {
+    setProfileError(null);
     setEditing(false);
+  };
+
+  const handleSaveProfile = async () => {
+    if (savingProfile) return;
+    const trimmedName = editName.trim();
+    const trimmedUsername = editUsername.trim();
+    if (!trimmedName) {
+      setProfileError('Имя не может быть пустым');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]{1,50}$/.test(trimmedUsername)) {
+      setProfileError('Username: 1–50 символов, только латиница/цифры/_');
+      return;
+    }
+    const patch: { name?: string; username?: string } = {};
+    if (trimmedName !== (user?.name ?? '')) patch.name = trimmedName;
+    if (trimmedUsername !== (user?.username ?? '')) patch.username = trimmedUsername;
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      return;
+    }
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateProfile(patch);
+      setEditing(false);
+    } catch (e: any) {
+      setProfileError(e?.message || 'Не удалось сохранить');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   if (showSaved) return (
@@ -296,18 +339,51 @@ export const ProfileScreen = () => {
           <Stagger baseDelay={140} step={55}>
             <Text style={s.eyebrowCenter}>Профиль</Text>
             {editing ? (
-              <View style={s.editRow}>
-                <TextInput style={s.editInput} value={editName} onChangeText={setEditName} autoFocus />
-                <Pressable style={s.editSaveBtn} onPress={handleSaveProfile} activeScale={0.9}>
-                  <Text style={s.editSaveBtnText}>✓</Text>
-                </Pressable>
+              <View style={s.editBlock}>
+                <View style={s.editRow}>
+                  <TextInput
+                    style={s.editInput}
+                    value={editName}
+                    onChangeText={setEditName}
+                    placeholder="Имя"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    autoFocus
+                    editable={!savingProfile}
+                  />
+                </View>
+                <View style={s.editRow}>
+                  <Text style={s.editPrefix}>@</Text>
+                  <TextInput
+                    style={s.editInput}
+                    value={editUsername}
+                    onChangeText={setEditUsername}
+                    placeholder="username"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!savingProfile}
+                  />
+                </View>
+                {profileError ? <Text style={s.editError}>{profileError}</Text> : null}
+                <View style={s.editActions}>
+                  <Pressable style={s.editCancelBtn} onPress={handleCancelEditing} activeScale={0.95} disabled={savingProfile}>
+                    <Text style={s.editCancelBtnText}>Отмена</Text>
+                  </Pressable>
+                  <Pressable style={s.editSaveBtn} onPress={handleSaveProfile} activeScale={0.9} disabled={savingProfile}>
+                    {savingProfile ? (
+                      <ActivityIndicator size="small" color={theme.colors.textInverse} />
+                    ) : (
+                      <Text style={s.editSaveBtnText}>Сохранить</Text>
+                    )}
+                  </Pressable>
+                </View>
               </View>
             ) : (
-              <Pressable onPress={() => { setEditName(user?.name ?? ''); setEditing(true); }} activeScale={0.97}>
+              <Pressable onPress={handleStartEditing} activeScale={0.97}>
                 <Text style={s.name}>{user?.name ?? 'Гость'} <Text style={s.editPen}>✎</Text></Text>
               </Pressable>
             )}
-            <Text style={s.username}>@{user?.username ?? ''}</Text>
+            {!editing ? <Text style={s.username}>@{user?.username ?? ''}</Text> : null}
 
             <View style={s.menu}>
               <Tilt maxTilt={3} liftOnHover={2}>
@@ -353,10 +429,16 @@ const s = StyleSheet.create({
   name: { fontFamily: theme.fonts.display, fontSize: Platform.OS === 'web' ? 28 : 26, lineHeight: Platform.OS === 'web' ? 32 : 30, color: theme.colors.primaryDark, textAlign: 'center', letterSpacing: -0.8, marginBottom: theme.spacing.xs },
   editPen: { fontFamily: undefined, fontSize: 16, color: theme.colors.primary },
   username: { ...theme.typography.caption, color: theme.colors.textTertiary, textAlign: 'center', marginBottom: theme.spacing.lg },
-  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.sm, marginBottom: theme.spacing.xs },
-  editInput: { ...theme.typography.h3, color: theme.colors.textPrimary, borderBottomWidth: 1, borderBottomColor: theme.colors.primary, paddingBottom: 2, minWidth: 120, textAlign: 'center' },
-  editSaveBtn: { backgroundColor: theme.colors.primary, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', ...theme.shadows.sm },
-  editSaveBtnText: { color: theme.colors.textInverse, fontSize: 16, fontWeight: '800' },
+  editBlock: { paddingHorizontal: theme.spacing.lg, gap: theme.spacing.sm, marginBottom: theme.spacing.md },
+  editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.xs, marginBottom: theme.spacing.xs },
+  editInput: { ...theme.typography.body, color: theme.colors.textPrimary, borderBottomWidth: 1, borderBottomColor: theme.colors.primary, paddingBottom: 2, minWidth: 180, textAlign: 'center' },
+  editPrefix: { ...theme.typography.body, color: theme.colors.textTertiary, fontWeight: '600' },
+  editError: { ...theme.typography.caption, color: theme.colors.error, textAlign: 'center' },
+  editActions: { flexDirection: 'row', justifyContent: 'center', gap: theme.spacing.sm, marginTop: theme.spacing.xs },
+  editCancelBtn: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, borderWidth: 1, borderColor: theme.colors.borderLight },
+  editCancelBtnText: { ...theme.typography.captionBold, color: theme.colors.textSecondary, fontWeight: '700' },
+  editSaveBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: theme.borderRadius.full, alignItems: 'center', justifyContent: 'center', minWidth: 110, ...theme.shadows.sm },
+  editSaveBtnText: { color: theme.colors.textInverse, fontSize: 14, fontWeight: '800' },
   menu: { width: '100%', paddingHorizontal: theme.spacing.lg, gap: theme.spacing.sm, marginTop: theme.spacing.sm },
   menuItem: {
     backgroundColor: 'rgba(255,255,255,0.82)',
