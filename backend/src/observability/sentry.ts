@@ -5,22 +5,31 @@ let initialized = false;
 export function initSentry() {
   const dsn = process.env.SENTRY_DSN;
   if (!dsn) return;
-  Sentry.init({
-    dsn,
-    environment: process.env.NODE_ENV || 'development',
-    // Keep tracesSampleRate conservative — beta-diagnostic use only.
-    tracesSampleRate: 0.1,
-  });
-  initialized = true;
+  try {
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV || 'development',
+      // Keep tracesSampleRate conservative — beta-diagnostic use only.
+      tracesSampleRate: 0.1,
+    });
+    initialized = true;
+  } catch {
+    // Fail silently — observability must never crash the server on startup.
+  }
 }
 
 export function captureError(err: unknown, context?: Record<string, unknown>) {
   if (!initialized) return;
-  if (context) Sentry.withScope((scope) => {
-    for (const [k, v] of Object.entries(context)) scope.setExtra(k, v);
-    Sentry.captureException(err);
-  });
-  else Sentry.captureException(err);
+  try {
+    if (context) Sentry.withScope((scope) => {
+      for (const [k, v] of Object.entries(context)) scope.setExtra(k, v);
+      Sentry.captureException(err);
+    });
+    else Sentry.captureException(err);
+  } catch {
+    // ignore — a throw here would propagate out of the global Fastify error
+    // handler and prevent the 500 response from being sent.
+  }
 }
 
 // captureException is async — it queues the event and sends it on a background
