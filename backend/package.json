@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@fastify/helmet": "^13.0.2",
     "@fastify/jwt": "^9.0.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@fastify/websocket": "^11.2.0",
     "dotenv": "^17.4.2",
     "fastify": "^5.0.0",

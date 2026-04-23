@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { sendOtp, verifyOtp } from '../auth/otp.js';
+import { sendOtp, verifyOtp, type VerifyOtpResult } from '../auth/otp.js';
 import { query } from '../db/pool.js';
 
 function normalizeRuPhone(input: string): string | null {
@@ -16,7 +16,15 @@ function normalizeRuPhone(input: string): string | null {
 }
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/otp/send', async (request, reply) => {
+  const rateLimit = (app as any).rateLimit as undefined | ((opts: { max: number; timeWindow: string | number }) => any);
+  const sendConfig = rateLimit
+    ? { config: { rateLimit: { max: 3, timeWindow: '1 minute' } } }
+    : {};
+  const verifyConfig = rateLimit
+    ? { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+    : {};
+
+  app.post('/otp/send', sendConfig, async (request, reply) => {
     const { phone } = request.body as { phone: string };
     const normalizedPhone = normalizeRuPhone(phone);
     if (!normalizedPhone) return reply.code(400).send({ code: 'INVALID_PHONE', message: 'Invalid phone number' });
@@ -24,11 +32,17 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({});
   });
 
-  app.post('/otp/verify', async (request, reply) => {
+  app.post('/otp/verify', verifyConfig, async (request, reply) => {
     const { phone, code } = request.body as { phone: string; code: string };
     const normalizedPhone = normalizeRuPhone(phone);
     if (!normalizedPhone || !code) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'phone and code required' });
-    if (!verifyOtp(normalizedPhone, code)) return reply.code(401).send({ code: 'INVALID_OTP', message: 'Invalid or expired OTP' });
+    const result: VerifyOtpResult = verifyOtp(normalizedPhone, code);
+    if (result === 'locked') {
+      return reply.code(429).send({ code: 'OTP_LOCKED', message: 'Too many invalid attempts, request a new code' });
+    }
+    if (result !== 'ok') {
+      return reply.code(401).send({ code: 'INVALID_OTP', message: 'Invalid or expired OTP' });
+    }
 
     let user = (await query('SELECT * FROM users WHERE phone = $1', [normalizedPhone])).rows[0];
     if (!user) {
