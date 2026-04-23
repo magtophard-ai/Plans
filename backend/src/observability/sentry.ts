@@ -23,4 +23,16 @@ export function captureError(err: unknown, context?: Record<string, unknown>) {
   else Sentry.captureException(err);
 }
 
+// captureException is async — it queues the event and sends it on a background
+// timer. Before process.exit() or during a graceful shutdown we need to flush
+// the queue or the event is silently dropped.
+export async function flushSentry(timeoutMs = 2000): Promise<void> {
+  if (!initialized) return;
+  try {
+    await Sentry.flush(timeoutMs);
+  } catch {
+    // ignore — flush errors must not block shutdown
+  }
+}
+
 export { Sentry };

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { initSentry, captureError } from './observability/sentry.js';
+import { initSentry, captureError, flushSentry } from './observability/sentry.js';
 import { initAnalytics, shutdownAnalytics } from './observability/analytics.js';
 
 initSentry();
@@ -109,7 +109,7 @@ app.setErrorHandler((error: any, request: any, reply: any) => {
 });
 
 const shutdown = async () => {
-  await shutdownAnalytics();
+  await Promise.all([shutdownAnalytics(), flushSentry()]);
   process.exit(0);
 };
 process.on('SIGTERM', shutdown);
@@ -121,5 +121,6 @@ try {
 } catch (err) {
   app.log.error(err);
   captureError(err);
+  await flushSentry();
   process.exit(1);
 }
