@@ -285,7 +285,7 @@ CREATE TYPE proposal_status AS ENUM ('active','finalized','superseded');
 CREATE TYPE group_role AS ENUM ('member');
 CREATE TYPE invitation_type AS ENUM ('plan','group');
 CREATE TYPE invitation_status AS ENUM ('pending','accepted','declined');
-CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed');
+CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed','friend_request','plan_join_via_link');
 CREATE TYPE message_type AS ENUM ('user','system','proposal_card');
 CREATE TYPE message_context AS ENUM ('plan');
 

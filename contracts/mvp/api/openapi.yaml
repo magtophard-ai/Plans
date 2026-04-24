@@ -1095,7 +1095,7 @@ components:
       enum: [pending, accepted, declined]
     NotificationType:
       type: string
-      enum: [plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed]
+      enum: [plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed, friend_request, plan_join_via_link]
     MessageType:
       type: string
       enum: [user, system, proposal_card]
