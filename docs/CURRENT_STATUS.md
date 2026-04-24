@@ -1,11 +1,22 @@
 # FEST MVP — Current Status
 
-**Last updated**: 2026-04-22
-**State**: Frozen MVP core + beta hardening pass + social/share polish (PR #1, PR #2 merged)
+**Last updated**: 2026-04-23
+**Single source of truth**: this document for **what is shipped and how it runs today**.
+For the forward-looking roadmap, gotchas, and next-agent handoff, see
+[`docs/HANDOFF.md`](./HANDOFF.md). For a step-by-step runbook to stand the
+demo stack up for real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 
-> 🧭 New agent? Read [`docs/HANDOFF.md`](./HANDOFF.md) first — it has the session
-> journal, the agreed roadmap, open PRs, and the exact scope for the next piece
-> of work (P2 = onboarding + empty states).
+## TL;DR
+
+- 4-slice MVP is complete and API-backed; all 7 Zustand stores are wired to
+  the backend.
+- Demo stack runs end-to-end on a real iPhone via Expo Go tunnel (SDK 54).
+  iOS safe-area, OTP input, inverted-chat empty state, WS subscribe, plan
+  creation, and the `messages.client_message_id` migration all work.
+- Observability (Sentry + PostHog) is shipped on both backend and frontend.
+- CI (GitHub Actions) gates every PR on backend + frontend typecheck, backend
+  REST/HTTP smoke, and realtime (WebSocket) smoke. See
+  [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 ## Implementation status
 
@@ -16,82 +27,90 @@
 | 3 | Proposals, voting, finalize/unfinalize, repeat, messages | Done |
 | 4 | WebSocket real-time (messages, proposals, votes, lifecycle, notifications) | Done |
 
-All 4 slices implemented and integrated. All 7 stores are API-backed for active MVP flows.
-
-## What is real API vs still mock-only
+## Feature status (API / mock / dev-only)
 
 | Feature | Status |
 |---------|--------|
-| Auth (OTP) | Mock — code is always `1111`, no SMS sent |
+| Auth (OTP) | **Mock** — code is always `1111`, no SMS sent (P0b explicitly deferred) |
 | Events | Seed-only, read-only from API |
 | Venues | Seed-only, read-only from API |
 | Plans | Full CRUD + lifecycle, all API-backed |
 | Proposals + votes | Full API-backed |
-| Messages | Full API-backed |
-| Invitations | Full API-backed (atomic accept with 15-participant lock) |
-| Groups | Full API-backed (list/detail/member reads through backend) |
+| Messages | Full API-backed, with `client_message_id` dedup (column is created by `backend/src/db/migrate.ts`) |
+| Invitations | Full API-backed (atomic accept with 15-participant `FOR UPDATE` lock) |
+| Groups | Full API-backed (list/detail/member reads) |
 | Notifications | Full API-backed, server-created only |
-| Friends | Full API-backed; **pending → accepted** flow (PR #1) with `friend_request` notifications and incoming-requests UI |
-| Plan share / deep link | Share token + public preview + authed join + `plan_join_via_link` notification (PR #2); `fest://p/:token` linking |
-| WebSocket | Real — push-only, REST is source of truth |
+| Friends | Full API-backed; pending → accepted flow with `friend_request` notifications |
+| Plan share / deep link | Share token + public preview + authed join + `fest://p/:token` linking |
+| WebSocket | Real — push-only, REST is source of truth; UUID-validated subscribes; wrapped handler (does not crash on malformed subscribe) |
+| Onboarding | 3-slide flow before `AuthScreen`, persisted via AsyncStorage |
+| Empty states | Upgraded `EmptyState` + contextual copy across ~10 call sites |
+| Observability | Sentry (error reporting, both sides) + PostHog analytics (both sides) |
 
-## Realtime support
+## Realtime
 
-- **Connection**: `ws://localhost:3001/api/ws` — JWT auth on connect
-- **Channels**: `user:{userId}`, `plan:{planId}`
-- **Events emitted**: `plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `notification.created`
-- **Events NOT emitted**: `plan.cancelled`, `plan.completed`, participant add/remove/update
-- **Reconnect**: exponential backoff + resubscribe + data resync
-- **Dedup**: `client_message_id` for messages, ID check for proposals, optimistic vote filtering
+- **Connection**: `ws://<host>/api/ws` — JWT auth on connect, heartbeat (ping/pong).
+- **Channels**: `user:{userId}`, `plan:{planId}`.
+- **Events emitted**: `plan.message.created`, `plan.proposal.created`,
+  `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`,
+  `notification.created`.
+- **Events NOT emitted** (known): `plan.cancelled`, `plan.completed`,
+  participant add/remove/update.
+- **Reconnect**: exponential backoff + resubscribe + data resync.
+- **Dedup**: `client_message_id` for messages, ID check for proposals,
+  optimistic vote filtering.
+- **Subscribe hardening**: the backend validates UUIDs for `plan:{id}`
+  channels and wraps the WS message handler in try/catch so a malformed
+  client subscribe (e.g. `plan:undefined`) can no longer crash the process.
 
 ## How to run
 
-See `docs/RUNBOOK.md` for full instructions.
+For phone testing via Expo Go, follow
+[`docs/DEMO_SETUP.md`](./DEMO_SETUP.md) end-to-end. That is the only
+documented path for real-device testing.
 
-Quick start:
-1. Backend: `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\index.ts` (workdir: `E:\FEST\V1\backend`)
-2. Frontend: `npx expo start --web` (workdir: `E:\FEST\V1\fest-app`)
-3. Auth: any phone + code `1111`
+Quick local (web) start:
+1. Postgres — `docker run -d --name fest-pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=plans postgres:17` (or Windows PG service — see [AGENTS.md](../AGENTS.md)).
+2. Backend — `cd backend && npm install && npm run db:migrate && npm run db:seed && npm run start`.
+3. Frontend — `cd fest-app && npm install --legacy-peer-deps && npx expo start --web`.
+4. Auth — phone `+79990000000`, code `1111`.
 
 ## Known limitations
 
-- No real SMS — OTP always `1111`
-- No push notifications — in-app + WS only
-- No map view
-- No email auth
-- No group chat — chat is plan-level only
-- No event creation form — events are seed-only
-- No real-time updates for plan cancellation, completion, or participant changes
-- Max 15 participants per plan
-- Web-only tested for this release
-- `fest-app/src/fest-animations/**` intentionally excluded from main frontend quality gate (`fest-app/tsconfig.json`)
-- `fest-animations` typecheck is separate (`npx tsc --noEmit -p tsconfig.fest-animations.json`) and currently may fail
-- `plansStore.error` is global — errors from different operations share one banner
-- Notification shape mismatch: WS-pushed notifications use `user_id`/`created_at` (snake_case, matching type), REST-fetched ones get camelized to `userId`/`createdAt` (mismatching the declared `Notification` type)
+- No real SMS — OTP is always `1111`.
+- No push notifications — in-app + WS only (P7, meaningful only after EAS Dev Client).
+- No map view.
+- No email auth.
+- No group chat — chat is plan-level only.
+- No event creation form — events are seed-only.
+- No real-time updates for plan cancellation, completion, or participant changes.
+- Max 15 participants per plan.
+- `fest-app/src/fest-animations/**` intentionally excluded from the main
+  frontend TypeScript gate (`fest-app/tsconfig.json`). Validate separately
+  with `tsconfig.fest-animations.json` when needed.
+- `plansStore.error` is global — errors from different operations share one banner.
+- Notification shape mismatch between WS and REST payloads (WS is
+  snake_case, REST is camelized) — not a functional bug, documented for
+  next hardening pass.
+- `authStore.logout` clears the token locally only — no server-side JWT
+  invalidation.
 
 ## Dev/mock-only items intentionally kept
 
-- `OTP_CODE=1111` — mock OTP, required until real SMS integration
-- `authStore.logout` clears token locally only — no server-side token invalidation
-- ProfileScreen `handleSaveProfile` is a no-op (no `PATCH /users/me` call wired up yet)
-- `fetchUser` API function exists but is unused by any screen
-- `addFriend`/`removeFriend` API functions exist but are unused by any screen
+- `OTP_CODE=1111` — mock OTP, kept until a real SMS integration ships (P0b).
+- Cloudflared + Expo tunnel in `docs/DEMO_SETUP.md` are ephemeral by
+  design; restarts produce new URLs.
 
-## Beta hardening updates
+## CI
 
-- Main quality gate stabilized: backend `npx tsc --noEmit` and frontend `npx tsc --noEmit` (main app scope) are independent from `fest-animations`
-- Seed stabilized for repeat dev runs: deterministic IDs + upserts (no new duplicate seed entities on repeated runs)
-- Friends/groups read-path cleanup completed for active UI flows (no mock fallback paths)
-- Mobile/dev readiness pass: `npx expo start` startup verified; REST+WS critical flows validated via `backend/src/tests/e2e-smoke.ts` and `backend/src/tests/rt2-smoke.ts`
+`.github/workflows/ci.yml` runs on every PR and push to `master`:
+- `backend typecheck` — `cd backend && npx tsc --noEmit`
+- `frontend typecheck` — `cd fest-app && npx tsc --noEmit`
+- `backend e2e smoke` — spins up Postgres 17 as a service, runs
+  `npm run db:migrate && npm run db:seed`, starts the backend, waits for
+  `/api/health`, then runs `backend/src/tests/e2e-smoke.ts`.
+- `backend realtime smoke` — same setup, runs
+  `backend/src/tests/rt2-smoke.ts`.
 
-## Next recommended milestone
-
-**P2 — Onboarding + empty states**: 3-slide onboarding before `AuthScreen`
-(gated by first-launch flag) and upgrade of the `EmptyState` component
-(icon + title + body + optional CTA) across ~10 call sites. Full agreed
-scope in [`docs/HANDOFF.md §4`](./HANDOFF.md). Other roadmap priorities (P3
-observability, P4 dark theme, P5 tests, P6 EAS, P7 push, P8 WS backfill)
-are sequenced in the handoff doc; do not reorder without asking the user.
-
-Open PR: [#3 — pendingJoin native fallback](https://github.com/magtophard-ai/Plans/pull/3)
-(must merge before P2 touches the auth/deep-link flow).
+All four jobs must be green to merge. They run in parallel with independent
+Postgres instances.

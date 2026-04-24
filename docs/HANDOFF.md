@@ -1,161 +1,224 @@
-# Session Handoff — 2026-04-22
+# Session Handoff — 2026-04-23 (demo-stack + CI)
 
-This document is the handoff from Devin session
-[`9abdd80a796b4e5db52ac52c7d1ab56a`](https://app.devin.ai/sessions/9abdd80a796b4e5db52ac52c7d1ab56a)
-to the next agent picking up work on this repo. It captures **what was
-delivered in this session, what is next, and the gotchas you will hit if
-you try to reproduce the environment from a fresh fork**. Read it before
-touching anything.
+This document is the forward-looking handoff: **what is next, which
+branches/PRs are in flight, and the gotchas you will hit on a fresh clone**.
+For "what is shipped today", read [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md).
+For a step-by-step runbook to stand the demo stack up for real-device testing
+through Expo Go, read [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
+
+Previous handoff (P2 — onboarding + empty states) was delivered and merged;
+its content is now reflected in `CURRENT_STATUS.md`. The old version of this
+file (2026-04-22) is preserved in git history if you need the P1/P2 narrative.
 
 ---
 
 ## TL;DR
 
-- **Delivered & merged**: PR #1 (friends pending/accept flow + `friend_request` notifications) and PR #2 (plan share link + `fest://p/:token` deep link).
-- **Open**: PR #3 (in-memory fallback for `pendingJoin` on React Native — fixes a silent breakage on mobile found by Devin Review after PR #2 was merged).
-- **Agreed but not yet coded**: P2 in the roadmap below — onboarding screen (before AuthScreen, flag stored in pendingJoin-style storage) + upgraded empty-state components across ~10 call sites. Scope is frozen; see §4.
-- **Roadmap position**: P0a (friends) ✅, P0b (real OTP) — explicitly skipped by user ("пока не хочу заниматься провайдерами"), P1 (share link) ✅, P2 (onboarding + empty states) ← next.
+- Roadmap up to P3 (observability) is merged. P4+ is pending and unblocked
+  by CI now existing.
+- **Open PR**: #1 — demo-stack fixes + `docs/DEMO_SETUP.md` + CI workflow +
+  Phase-0 documentation alignment (this document + `CURRENT_STATUS.md` +
+  README). Blocks nothing downstream; safe to merge as soon as CI is green.
+- **Next recommended milestone**: P4 dark theme or P5 integration tests —
+  user has not picked between them yet.
 
 ---
 
-## 1. What was delivered in this session
-
-### PR #1 — Friends pending / accept flow
-- URL: <https://github.com/magtophard-ai/Plans/pull/1> (merged)
-- Branch: `devin/1776863429-friends-and-profile` (can be deleted)
-- Backend: `POST /users/friends/:id` now writes `pending` (not auto-accepted); new `PATCH /users/friends/:id` with `{action: accept|decline}`; mutual-POST auto-accepts; `GET /users/friends` supports `direction=incoming|outgoing` and attaches `friendship_status` to each row. Added `friend_request` to the `notification_type` enum via idempotent `ALTER TYPE … ADD VALUE IF NOT EXISTS` in `backend/src/db/migrate.ts`.
-- Frontend: `friendsStore` gained `incomingRequests`/`outgoingRequests`/`acceptFriendRequest`/`declineFriendRequest`. `PublicProfileScreen` renders the four `friendship_status` states. `ProfileScreen` friends drawer shows "Входящие заявки" + pink badge on the menu item. `NotificationsScreen` + `types.NotificationType` handle `friend_request`.
-- Also included a collateral fix: `fest-app/src/api/client.ts` no longer sets `Content-Type: application/json` on bodyless POSTs (Fastify rejected them with "Body cannot be empty…").
-- E2E tested in session (two-browser Masha/Артём, psql spot-checks). Test artifacts are at `test-plan.md` and `test-report.md` (repo root) — see §6 about whether to keep those.
-
-### PR #2 — Plan share link + deep link
-- URL: <https://github.com/magtophard-ai/Plans/pull/2> (merged)
-- Branch: `devin/1776870581-plan-share-link` (can be deleted)
-- Backend: `plans.share_token` column (8-byte hex, unique, auto-generated on `POST /plans` and `/plans/:id/repeat`); public `GET /api/plans/by-token/:token` (no auth, minimal preview); authed `POST /api/plans/by-token/:token/join` with `SELECT … FOR UPDATE`, idempotent on repeat, 409 on cancelled/completed/full. Added `plan_join_via_link` enum value via the same pattern as PR #1.
-- Frontend: `expo.scheme = "fest"` in `app.json`; `NavigationContainer` linking config routes `fest://p/:token` / `http(s)://<host>/p/:token` → new `PublicPlanScreen`. `PlanDetailsScreen` gains a "Поделиться" button (Web Share API → clipboard fallback → native `Share.share`). `usePendingJoinCapture` stashes tokens from deep links seen while logged-out; after OTP, `NavigationContainer.onReady` auto-navigates to `PublicPlan`.
-- Migration ordering fix: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS share_token` now runs **before** init.sql so `CREATE INDEX idx_plans_share_token` doesn't fail on existing DBs.
-- Test artifacts: `docs/testing/2026-04-22-share-link/`.
-
-### PR #3 — pendingJoin native fallback (OPEN)
-- URL: <https://github.com/magtophard-ai/Plans/pull/3>
-- Branch: `devin/1776873215-pendingjoin-native-fallback`
-- Fix for a Devin Review finding on merged PR #2: `fest-app/src/utils/pendingJoin.ts` used `localStorage` with a `typeof localStorage === 'undefined'` guard, silently no-opping on iOS/Android. Added a module-level in-memory mirror so the token survives the OTP window on native. Web behavior unchanged (`localStorage` remains the primary store).
-- Only the `pendingJoin.ts` file changes. Typecheck green.
-- **Still needs user to merge.**
-
----
-
-## 2. Roadmap agreed with user
-
-Order and reasoning are the user's own choices from earlier in the session — don't reorder silently.
-
-| # | Item | Status |
-|---|------|--------|
-| P0a | Friends pending/accept flow + pickers | ✅ merged (PR #1) |
-| P0b | Real SMS OTP provider | ⏭ **explicitly skipped** by the user — keep `OTP_MOCK=true` / code `1111` until they ask |
-| P1 | Plan share link + deep link | ✅ merged (PR #2) + hotfix pending (PR #3) |
-| P2 | Onboarding + human empty states | 🟡 scope agreed, branch created, not yet coded — see §4 |
-| P3 | Sentry + minimal PostHog analytics | pending |
-| P4 | Dark theme (respecting Aurora) | pending |
-| P5 | Basic integration tests (friends-flow, plan lifecycle, invitations, WS) | pending |
-| P6 | Mobile native check + EAS build (dev + preview) | pending |
-| P7 | Push notifications (`plan_invite`, `friend_request`, `plan_finalized`) | pending — only meaningful **after** P1 + P2 are live |
-| P8 | Backfill WS events (`plan.cancelled`, `plan.completed`, participant.*), wire `PATCH /users/me`, add ESLint | pending |
-
----
-
-## 3. Current open PRs / branches
+## 1. Open PRs / branches
 
 | Branch | Purpose | State |
 |--------|---------|-------|
-| `master` | Production trunk | PR #1 and PR #2 merged |
-| `devin/1776873215-pendingjoin-native-fallback` | PR #3 (native fallback) | open, awaiting merge |
-| `devin/1776872837-onboarding-empty-states` | P2 work branch (empty — only contains the base master state) | safe to delete and recreate from fresh master |
-| `devin/1776863429-friends-and-profile` | PR #1 (merged) | can be deleted |
-| `devin/1776870581-plan-share-link` | PR #2 (merged) | can be deleted |
+| `master` | Production trunk | P0a, P1, P2, P3 merged |
+| `devin/1776983620-demo-stack-fixes` | Demo-stack fixes + DEMO_SETUP + CI + Phase-0 docs (PR #1) | open, awaiting merge |
+
+There are no other in-flight feature branches. Delete any leftover `devin/*`
+branches older than the active PR.
 
 ---
 
-## 4. P2 — scope agreed with user
+## 2. Roadmap
 
-The user picked option **"До AuthScreen (продать идею до формы)"**. Do not change this without asking.
+Order and reasoning are the user's own choices — don't reorder silently.
 
-### Onboarding
-- New `OnboardingScreen` with **3 swipeable slides** (pager):
-  1. "Собирайтесь с друзьями" — core value prop
-  2. "Предложения и голосования" — place/time proposals
-  3. "Делитесь ссылкой" — P1 share link feature
-- Aurora background + FadeIn/SplitText already in the theme; reuse them, don't add new motion components.
-- **Gate**: show on first launch only. Store a boolean flag (same cross-platform pattern as `pendingJoin.ts` after PR #3 — `localStorage` on web, module-level or `AsyncStorage` on native. For a one-time flag `AsyncStorage` is appropriate since we want it to survive app kills; for the in-session token, in-memory is fine).
-- "Пропустить" (top-right, muted) and "Далее"/"Начать" (primary CTA). On completion → set the flag → render `AuthScreen`.
-
-### Empty states
-- Upgrade `fest-app/src/components/EmptyState.tsx` from `{ text }` only → `{ icon?, title, body?, cta? }` where `cta = { label, onPress }`.
-- Update ~10 call sites with context-aware copy (full list below). Don't add external assets; stick to emojis inside the existing circle.
-
-| File | Existing text | New copy (approved) |
-|------|---------------|---------------------|
-| `PlansHubScreen.tsx` · Активные | "Нет активных планов" | 🎬 "Пока ничего не запланировано" + "Найдите событие на Главной или создайте свой план" + CTA "Создать план" |
-| `PlansHubScreen.tsx` · Приглашения | "Нет приглашений" | 📨 "Входящих приглашений нет" + "Друзья позовут — тут появятся" |
-| `PlansHubScreen.tsx` · Группы | "Нет групп" | 👥 "Групп пока нет" + "Группы помогают собирать компанию под одно событие" |
-| `PlansHubScreen.tsx` · Прошедшие | "Нет прошедших планов" | 🕰 "История пустая" + "Сюда попадут завершённые планы" |
-| `NotificationsScreen.tsx` | "Нет уведомлений" | 🔔 "Пока тихо" + "Когда друзья позовут или что-то изменится — сообщим" |
-| `ProfileScreen.tsx` · Сохранённые | "Ничего не сохранено" | ⭐ "Нет сохранённых" + "Тапните ☆ на карточке события, чтобы вернуться позже" |
-| `ProfileScreen.tsx` · Друзья (пусто) | "Нет друзей — попробуйте найти кого-то выше" | 🤝 "Пока один" + "Найдите друзей в поиске выше" |
-| `SearchScreen.tsx` (пустой запрос) | (ничего) | 🔍 "Что ищете?" + "Пробуйте названия мест или категории" |
-| `SearchScreen.tsx` (нет результатов) | "Ничего не найдено" | 🫥 "Ничего не нашлось" + "Попробуйте другой запрос" |
-| `HomeScreen.tsx` (пустая категория) | (пустой список) | 🎯 "Нет событий в этой категории" + CTA "Сбросить фильтр" |
-
-Leave `CreatePlanForm.tsx`'s inline `Нет друзей — можно создать план только для себя` as-is (it's a form hint, not a full-screen empty state).
-
-### Out of scope for P2
-- Lottie illustrations (emojis are fine for MVP).
-- Dark-mode variants of empty states (tackle in P4).
-- A/B testing copy (needs PostHog from P3 first).
+| # | Item | Status |
+|---|------|--------|
+| P0a | Friends pending/accept flow + pickers | merged |
+| P0b | Real SMS OTP provider | **explicitly skipped** — keep `OTP_CODE=1111` until the user asks |
+| P1 | Plan share link + deep link | merged |
+| P2 | Onboarding + human empty states | merged |
+| P3 | Sentry + minimal PostHog analytics | merged |
+| Phase 0 | Docs cleanup + CI (this PR) | open in PR #1 |
+| P4 | Dark theme (respecting Aurora) | pending |
+| P5 | Basic integration tests (friends-flow, plan lifecycle, invitations, WS) | pending — CI now ready to host them |
+| P6 | Mobile native check + EAS build (dev + preview) | pending |
+| P7 | Push notifications (`plan_invite`, `friend_request`, `plan_finalized`) | pending — only meaningful after P6 |
+| P8 | Backfill missing WS events (`plan.cancelled`, `plan.completed`, participant.*), wire `PATCH /users/me`, add ESLint | pending |
 
 ---
 
-## 5. Gotchas found during this session (read before restarting env)
+## 3. What was delivered in the current open PR (PR #1 — demo-stack)
 
-1. **`backend/src/db/migrate.ts` ordering**: `001_init.sql` contains `CREATE INDEX idx_plans_share_token` on a column that's added by a later `ALTER TABLE`. The fix in PR #2 runs the `ALTER TABLE … ADD COLUMN IF NOT EXISTS share_token` **before** the main init.sql loop. If you see `column "share_token" does not exist` (`42703`) during `npm run db:migrate`, it means someone reordered this.
-2. **`fest-app/src/api/client.ts`** must NOT set `Content-Type: application/json` when `body === undefined`. Fastify 400s any declared-JSON request with an empty body (e.g. `POST /api/plans/by-token/:token/join`). This fix exists on master via PR #1 — don't revert it.
-3. **`pendingJoin.ts` on native**: PR #3 must land, or the mobile deep-link flow silently fails (user ends up on `MainTabs` after OTP instead of `PublicPlanScreen`). Verify `setPendingJoinToken` has an in-memory mirror before building any new feature that depends on pre-auth state.
-4. **Environment**: Postgres runs in docker container `fest-pg` (`postgres:postgres`, db `plans`). Backend default `:3001`, Expo web `:8081`. OTP code is always `1111` (`OTP_MOCK`), no real SMS provider — user explicitly deferred P0b.
-5. **Seed users** for E2E (created by `backend/src/db/seed.ts`):
-   - `+79990000000` → "Я" (`@me`) — creator of plan "Кино в субботу"
-   - `+79994444444` → "Артём" (`@artem`)
-   - `+79991111111` → "Маша"
-   - Plan `72222222-2222-4222-8222-222222222222` has `share_token=bcf69309791cf210`.
+Context: the user tested the app on a real iPhone 16 Pro Max (iOS 26.4) via
+Expo Go tunnel. The session surfaced several real bugs that blocked the
+end-to-end demo. PR #1 fixes them and adds the surrounding hygiene needed
+to prevent regression.
+
+### Backend
+- `backend/src/routes/ws.ts`: UUID validation for `plan:{id}` subscribes +
+  `try/catch` around the WS message handler. Prevents a crash from a
+  malformed subscribe (e.g. `plan:undefined`), which previously took the
+  process down and returned HTTP 502 from the tunnel.
+- `backend/src/db/migrate.ts`: adds
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_message_id text`.
+  The column was referenced in code but never created in `001_init.sql`,
+  so on a fresh DB every `POST /plans/:id/messages` 500'd.
+- `backend/src/tests/e2e-smoke.ts` and `rt2-smoke.ts`: now use random
+  per-run phone numbers so they can run against a seeded DB without
+  colliding with the pre-wired friendships between the seed users.
+  `e2e-smoke` Section 13 ("finalize validation") was updated to match the
+  backend's actual response (`INVALID_STATE` with a "confirmed place/time"
+  message, not the outdated `INVALID_INPUT` / "at least one proposal").
+
+### Frontend
+- `fest-app/App.tsx`: wraps the root in `SafeAreaProvider` from
+  `react-native-safe-area-context`. Without the provider, `useSafeAreaInsets()`
+  returned zeros and iOS content ran under the Dynamic Island.
+- `fest-app/src/components/ScreenContainer.tsx`: applies `paddingTop: insets.top`
+  on native so every screen respects the iOS notch / Dynamic Island.
+- `fest-app/src/screens/AuthScreen.tsx`: adds `lineHeight: 34` +
+  `paddingVertical: theme.spacing.lg` to the OTP input. The field inherited
+  `lineHeight: 24` from `h3` typography, which iOS `TextInput` clips when
+  it is smaller than `fontSize`.
+- `fest-app/src/screens/PlanDetailsScreen.tsx`: wraps `ListEmptyComponent`
+  in a `scaleY: -1` `View` so the "Нет сообщений" empty state is no longer
+  rendered upside-down inside the inverted `FlatList`.
+- `fest-app/src/api/plans.ts`: `fetchPlan` and `createPlan` now unwrap
+  `{ plan }` from the response. The backend always returns the plan in
+  that envelope; the store was reading `result.id`, which was `undefined`,
+  which in turn caused the frontend to navigate to `PlanDetails({ planId: undefined })`
+  and trigger the WS crash above.
+- `fest-app/src/stores/plansStore.ts`: `apiCreatePlan` clears `error: null`
+  at the start of each call so a stale error from a previous operation
+  doesn't bleed into the new flow's UI banner.
+- `fest-app/package.json` + `package-lock.json` + `app.json`:
+  `npx expo install --fix` to align native modules with Expo SDK 54. Most
+  notably, `react-native-reanimated` went from 3.16.x to 4.1.2, and the
+  new `react-native-worklets` peer was added. Without this, scanning the
+  QR in Expo Go under SDK 54 hard-crashes with
+  `[runtime not ready]: Exception in HostFunction: <unknown>` at
+  `NativeReanimated` init.
+
+### Docs
+- `docs/DEMO_SETUP.md` (new) — full runbook: Postgres in docker → backend
+  on `:3001` → cloudflared public tunnel → Expo Go tunnel with
+  `EXPO_PUBLIC_*` envs baked in → QR → smoke checklist → troubleshooting →
+  ASCII topology diagram.
+- `docs/CURRENT_STATUS.md` — rewritten to reflect the actually-shipped
+  state of master + this PR.
+- `docs/HANDOFF.md` — this file, restructured around the current roadmap.
+- `README.md` — quick-start updated, Linux/macOS section added, links to
+  DEMO_SETUP and CI.
+
+### CI (new)
+- `.github/workflows/ci.yml` — four jobs, each on `pull_request` and
+  `push: master`:
+  - `backend typecheck` (`npx tsc --noEmit` in `backend/`)
+  - `frontend typecheck` (`npx tsc --noEmit` in `fest-app/`)
+  - `backend e2e smoke` — Postgres 17 service, migrate, seed, start
+    backend, wait for `/api/health`, run `backend/src/tests/e2e-smoke.ts`
+  - `backend realtime smoke` — same setup, runs `backend/src/tests/rt2-smoke.ts`
+
+All four are now the merge gate.
 
 ---
 
-## 6. Test artifacts
+## 4. Gotchas found during this session (read before restarting env)
 
-- `docs/testing/2026-04-22-share-link/test-plan.md` — 5-case test plan for PR #2 (share → unauth deep link → OTP → join → idempotent rejoin).
-- `docs/testing/2026-04-22-share-link/test-report.md` — executed report with assertions, DB dumps, and recording link.
-- Recording for PR #1 (friends flow): posted inline in the PR #1 comment thread.
-- Recording for PR #2 (share flow): posted inline in the PR #2 comment thread.
-
-If you need to rerun E2E: see `docs/RUNBOOK.md` for backend/Expo startup, then follow the relevant test plan. Two browser windows (A = Masha or `@me`, B = Артём) work well on Expo web.
+1. **Expo SDK 54 native module alignment.** If you update any
+   `react-native-*` package, always follow with
+   `npx expo install --fix -- --legacy-peer-deps` so Metro's bundle matches
+   the native binaries baked into Expo Go. The Reanimated 3 → 4 jump is
+   especially sensitive because Reanimated 4 requires
+   `react-native-worklets`.
+2. **WS subscribe must never receive non-UUID channel ids.** The backend
+   now defensively validates, but the root cause was a frontend bug
+   (creating a plan returned `undefined`, which was then passed as a
+   subscribe target). If you add new `apiCreate*`-style helpers that the
+   UI navigates into, verify they unwrap the response envelope before
+   returning.
+3. **`messages.client_message_id` migration path.** Any future DB column
+   added in code must be added to `backend/src/db/migrate.ts` (idempotent
+   `ALTER TABLE … IF NOT EXISTS`). `contracts/mvp/db/001_init.sql` is only
+   applied once at init; subsequent columns must go through `migrate.ts`.
+4. **Demo stack is ephemeral.** The cloudflared (`trycloudflare.com`) and
+   Expo tunnel (`exp.direct`) URLs die on VM restart. `DEMO_SETUP.md`
+   explains how to stand them up again and how to bake the new backend URL
+   into the Expo bundle via `EXPO_PUBLIC_*` envs **before** Metro starts.
+5. **Rate limits in smoke tests.** `POST /auth/otp/send` is capped at 3/min
+   per IP. The smoke scripts use random per-run phones, but running them
+   twice in a row locally still hits the limit; CI is fine because each job
+   runs on a fresh runner IP.
+6. **Fastify 400 on bodyless POSTs.** `fest-app/src/api/client.ts` must NOT
+   set `Content-Type: application/json` when `body === undefined`. Fastify
+   rejects any declared-JSON request with an empty body (e.g.
+   `POST /api/plans/by-token/:token/join`). This fix already lives on
+   master — don't revert it.
 
 ---
 
-## 7. How to resume (concrete next steps for the next agent)
+## 5. Environment / seed data reference
 
-1. Ensure PR #3 (<https://github.com/magtophard-ai/Plans/pull/3>) is merged. If it isn't, merge it first — otherwise any P2 work that touches auth flow will be tested on broken native code.
-2. Check out fresh master: `git fetch && git checkout master && git pull`.
-3. Delete or re-create the abandoned P2 branch: `git branch -D devin/1776872837-onboarding-empty-states` (it has no commits; the P2 scope in §4 is the source of truth).
-4. Create a new branch for P2 work, e.g. `devin/<timestamp>-onboarding-empty-states`.
-5. Start with the `EmptyState` component upgrade + one call site (e.g. `NotificationsScreen.tsx`) as a sanity check on the new API. Then roll through the remaining ~9 call sites.
-6. Onboarding: put `OnboardingScreen` and a `useOnboardingGate` hook (mirrors the PR #3 pattern: localStorage on web, AsyncStorage on native — this one DOES need AsyncStorage because it must persist across app kills, unlike pendingJoin which only needs the OTP window). Render `<OnboardingScreen />` instead of `<AuthScreen />` from the existing `!isAuthenticated` branch in `App.tsx` when the flag is absent.
-7. Before opening the PR, run `npx tsc --noEmit` in both `backend/` and `fest-app/` (main quality gate; `fest-animations` is excluded from this gate per `tsconfig.json`).
-8. Open PR against master. The repo has no CI workflows — don't wait for checks that don't exist. Link `docs/HANDOFF.md` so reviewers can trace context.
+- Postgres — docker container `fest-pg` (`postgres:17`), database `plans`,
+  credentials `postgres:postgres`, port `5432`.
+- Backend — default `:3001`. Required envs: `DATABASE_URL`, `JWT_SECRET`
+  (>=32 chars in production), optional `OTP_CODE` (defaults to `1111`),
+  optional `SENTRY_DSN`, optional `POSTHOG_API_KEY`.
+- Expo — default Metro `:8081`. For device testing use `npx expo start --tunnel --go`
+  with `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` in the same
+  shell **before** starting Metro.
+- OTP — code is always `1111` (`OTP_MOCK`), no real SMS provider (P0b deferred).
+
+Seed users for manual demo testing (from `backend/src/db/seed.ts`):
+
+| Phone | Name |
+|-------|------|
+| `+79990000000` | "Я" — creator of plan "Кино в субботу" |
+| `+79991111111` | "Маша" |
+| `+79994444444` | "Артём" |
+| `+79992222222` | "Дима" |
+| `+79993333333` | "Лена" |
+| `+79995555555` | "Катя" |
+
+Share-token for a deep-link smoke: plan
+`72222222-2222-4222-8222-222222222222` has `share_token=bcf69309791cf210`,
+deep link `fest://p/bcf69309791cf210`.
 
 ---
 
-## 8. Stuff the user did NOT ask for (do not do unless asked)
+## 6. How to resume (concrete next steps for the next agent)
+
+1. Confirm PR #1 (<https://github.com/magtophard-ai/Plans/pull/1>) is merged
+   and CI on master is green.
+2. Check out a fresh master: `git fetch && git checkout master && git pull`.
+3. Pick a roadmap item. The two easiest unblocked candidates are:
+   - **P4 dark theme** — UI-only, no schema/API work; constrained to the
+     Aurora palette.
+   - **P5 integration tests** — now cheap because CI already runs Postgres +
+     migrate + seed. Extend `backend/src/tests/*-smoke.ts` with additional
+     flows instead of inventing a new test framework.
+4. Run both typechecks (`cd backend && npx tsc --noEmit`,
+   `cd fest-app && npx tsc --noEmit`) locally before opening a PR. The CI
+   workflow will re-run the same commands plus the two smoke jobs.
+5. Open PRs against master — CI will block the merge if the smoke tests
+   regress.
+
+---
+
+## 7. Stuff the user did NOT ask for (do not do unless asked)
 
 - Do not set up a real SMS provider (P0b is explicitly deferred).
-- Do not bypass `AGENTS.md` / `CLAUDE.md` style conventions.
+- Do not bypass `AGENTS.md` / `CLAUDE.md` conventions.
 - Do not force-push to master or amend commits.
-- Do not create new motion components; reuse `Aurora`, `FadeIn`, `Stagger`, `Tilt`, `Pressable`, `SplitText`, `TabIndicator`, `Tab`, `Badge`, `NotificationBell` from `fest-app/src/motion`.
+- Do not create new motion components; reuse the existing ones in
+  `fest-app/src/motion/`.
+- Do not start the dark theme (P4) or EAS builds (P6) unprompted.

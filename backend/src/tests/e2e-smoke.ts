@@ -66,14 +66,20 @@ async function main() {
   console.log('=== Comprehensive E2E Smoke Test ===\n');
 
   // --- SECTION 1: Auth ---
+  // Use fresh phone numbers per run so re-invoking against the same DB still
+  // exercises the friend-request flow from a clean state (seed wires
+  // +7999000000N as friends, which would break Section 3).
   console.log('1. Auth');
-  await api('/auth/otp/send', '', 'POST', { phone: '+79990000000' });
-  const authA: any = await api('/auth/otp/verify', '', 'POST', { phone: '+79990000000', code: '1111' });
+  const rnd = () => Math.floor(100000 + Math.random() * 900000).toString();
+  const phoneA = `+79900${rnd()}`;
+  const phoneB = `+79900${rnd()}`;
+  await api('/auth/otp/send', '', 'POST', { phone: phoneA });
+  const authA: any = await api('/auth/otp/verify', '', 'POST', { phone: phoneA, code: '1111' });
   const tokenA: string = authA.access_token;
   const userAId: string = authA.user.id;
 
-  await api('/auth/otp/send', '', 'POST', { phone: '+79991111111' });
-  const authB: any = await api('/auth/otp/verify', '', 'POST', { phone: '+79991111111', code: '1111' });
+  await api('/auth/otp/send', '', 'POST', { phone: phoneB });
+  const authB: any = await api('/auth/otp/verify', '', 'POST', { phone: phoneB, code: '1111' });
   const tokenB: string = authB.access_token;
   const userBId: string = authB.user.id;
 
@@ -328,8 +334,8 @@ async function main() {
   if (valInvItem) await api(`/invitations/${valInvItem.id}`, tokenB, 'PATCH', { status: 'accepted' });
 
   const finNoProp: any = await api(`/plans/${valPlanId}/finalize`, tokenA, 'POST', {});
-  assert(finNoProp.code === 'INVALID_INPUT', 'Finalize without proposals → 400 INVALID_INPUT');
-  assert(finNoProp.message?.includes('At least one'), 'Error message mentions at least one proposal');
+  assert(finNoProp.code === 'INVALID_STATE', 'Finalize without proposals or confirmed place/time → 400 INVALID_STATE');
+  assert(typeof finNoProp.message === 'string' && finNoProp.message.toLowerCase().includes('confirmed'), 'Error message mentions confirmed place/time requirement');
 
   // --- SECTION 14: PATCH /users/me validation ---
   console.log('\n14. PATCH /users/me validation');
@@ -348,10 +354,13 @@ async function main() {
   const validPatch: any = await api('/users/me', tokenA, 'PATCH', { name: 'Test User A' });
   assert(!!validPatch.user, 'Valid PATCH /me returns user');
 
-  const validUsername: any = await api('/users/me', tokenA, 'PATCH', { username: 'dyk_an' });
-  assert(validUsername.user?.username === 'dyk_an', 'Valid multi-char username accepted');
+  // Randomise so re-runs against the same DB don't collide on the unique
+  // username constraint.
+  const smokeUsername = `dyk_an_${Math.random().toString(36).slice(2, 8)}`;
+  const validUsername: any = await api('/users/me', tokenA, 'PATCH', { username: smokeUsername });
+  assert(validUsername.user?.username === smokeUsername, 'Valid multi-char username accepted');
 
-  const dupUsername: any = await api('/users/me', tokenB, 'PATCH', { username: 'dyk_an' });
+  const dupUsername: any = await api('/users/me', tokenB, 'PATCH', { username: smokeUsername });
   assert(dupUsername.code === 'USERNAME_TAKEN', 'Duplicate username → 409 USERNAME_TAKEN');
 
   // --- SECTION 15: Non-existent event interest/save ---

@@ -78,12 +78,15 @@ async function main() {
 
   // Auth two users
   console.log('1. Authenticating users A and B...');
-  await api('/auth/otp/send', '', 'POST', { phone: '+79990000000' });
-  const authA = await api('/auth/otp/verify', '', 'POST', { phone: '+79990000000', code: '1111' });
+  const rnd = () => Math.floor(100000 + Math.random() * 900000).toString();
+  const phoneA = `+79901${rnd()}`;
+  const phoneB = `+79901${rnd()}`;
+  await api('/auth/otp/send', '', 'POST', { phone: phoneA });
+  const authA = await api('/auth/otp/verify', '', 'POST', { phone: phoneA, code: '1111' });
   const tokenA: string = authA.access_token;
 
-  await api('/auth/otp/send', '', 'POST', { phone: '+79991111111' });
-  const authB = await api('/auth/otp/verify', '', 'POST', { phone: '+79991111111', code: '1111' });
+  await api('/auth/otp/send', '', 'POST', { phone: phoneB });
+  const authB = await api('/auth/otp/verify', '', 'POST', { phone: phoneB, code: '1111' });
   const tokenB: string = authB.access_token;
 
   const userAId: string = authA.user.id;
