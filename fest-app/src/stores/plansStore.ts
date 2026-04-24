@@ -66,6 +66,7 @@ export const usePlansStore = create<PlansState>((set, get) => ({
   },
 
   apiCreatePlan: async (data) => {
+    set({ error: null });
     try {
       const plan = await plansApi.createPlan(data);
       set((s) => ({ plans: [plan, ...s.plans] }));

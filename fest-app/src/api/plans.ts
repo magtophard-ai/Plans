@@ -15,7 +15,7 @@ export const fetchPlans = (params?: { lifecycle?: string; participant?: string }
 };
 
 export const fetchPlan = (id: string) =>
-  api<Plan>(`/plans/${id}`).then((r) => camelize<Plan>(r));
+  api<{ plan: Plan }>(`/plans/${id}`).then((r) => camelize<{ plan: Plan }>(r).plan);
 
 export const createPlan = (data: {
   title: string;
@@ -27,7 +27,7 @@ export const createPlan = (data: {
   pre_meet_place_text?: string;
   pre_meet_time?: string;
   participant_ids: string[];
-}) => api<Plan>('/plans', { method: 'POST', body: data }).then((r) => camelize<Plan>(r));
+}) => api<{ plan: Plan }>('/plans', { method: 'POST', body: data }).then((r) => camelize<{ plan: Plan }>(r).plan);
 
 export const updateParticipantStatus = (planId: string, userId: string, status: ParticipantStatus) =>
   api(`/plans/${planId}/participants/${userId}`, { method: 'PATCH', body: { status } });
