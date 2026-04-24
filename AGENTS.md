@@ -69,16 +69,16 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 | `notifications.ts` | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` |
 | `search.ts` | `GET /search/events` |
 | `ws.ts` | Singleton WS client: connect, disconnect, subscribe, unsubscribe, reconnect with exponential backoff, heartbeat/stale detection |
-| `wsHandler.ts` | Routes WS events (`plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `notification.created`) to stores |
+| `wsHandler.ts` | Routes WS events (`plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`, `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed`, `notification.created`) to stores |
 
 ### WebSocket (realtime)
 
 - **Protocol**: `ws://localhost:3001/api/ws` — auth via JWT, subscribe/unsubscribe channels
 - **REST is sole source of truth** — WS is push-only, no transactional writes in WS handlers
-- **Channels**: `user:{userId}` (notifications), `plan:{planId}` (messages, proposals, votes, lifecycle)
+- **Channels**: `user:{userId}` (notifications), `plan:{planId}` (messages, proposals, votes, lifecycle, participants)
 - **Frontend**: `ws.ts` singleton with reconnect + resync; `wsHandler.ts` routes to stores
 - **Dedup**: `pushMessage` uses `client_message_id` reconciliation + ID check; `pushProposal` uses ID check; `pushVote` filters optimistic votes
-- **Missing WS events**: `plan.cancelled`, `plan.completed`, participant changes do NOT emit WS — other participants must refresh manually
+- **Emitted events (11)**: `plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`, `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed` (all on `plan:{id}`); `notification.created` (on `user:{id}`). Lifecycle and participant events are merged in-place by refetching the plan on the frontend.
 
 ### Zustand stores (7)
 

@@ -50,7 +50,7 @@ Order and reasoning are the user's own choices — don't reorder silently.
 | P5 | Basic integration tests (friends-flow, plan lifecycle, invitations, WS) | pending — CI now ready to host them |
 | P6 | Mobile native check + EAS build (dev + preview) | pending |
 | P7 | Push notifications (`plan_invite`, `friend_request`, `plan_finalized`) | pending — only meaningful after P6 |
-| P8 | Backfill missing WS events (`plan.cancelled`, `plan.completed`, participant.*), wire `PATCH /users/me`, add ESLint | pending |
+| P8 | ESLint (WS lifecycle/participant backfill + `PATCH /users/me` already shipped) | pending |
 
 ---
 
