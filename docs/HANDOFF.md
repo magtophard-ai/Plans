@@ -50,7 +50,7 @@ Order and reasoning are the user's own choices — don't reorder silently.
 | P5 | Basic integration tests (friends-flow, plan lifecycle, invitations, WS) | pending — CI now ready to host them |
 | P6 | Mobile native check + EAS build (dev + preview) | pending |
 | P7 | Push notifications (`plan_invite`, `friend_request`, `plan_finalized`) | pending — only meaningful after P6 |
-| P8 | Backfill missing WS events (`plan.cancelled`, `plan.completed`, participant.*), wire `PATCH /users/me`, add ESLint | pending |
+| P8 | ESLint (WS lifecycle/participant backfill + `PATCH /users/me` already shipped) | pending |
 
 ---
 
@@ -175,7 +175,7 @@ All four are now the merge gate.
 - Expo — default Metro `:8081`. For device testing use `npx expo start --tunnel --go`
   with `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` in the same
   shell **before** starting Metro.
-- OTP — code is always `1111` (`OTP_MOCK`), no real SMS provider (P0b deferred).
+- OTP — code is always `1111` (controlled by the `OTP_CODE` env var; see `backend/.env.example`). No real SMS provider (P0b deferred). `POST /auth/otp/send` returns an empty body `{}` on success (HTTP 200), not `{ok:true}`.
 
 Seed users for manual demo testing (from `backend/src/db/seed.ts`):
 

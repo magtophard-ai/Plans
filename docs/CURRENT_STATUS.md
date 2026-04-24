@@ -51,11 +51,14 @@ demo stack up for real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.m
 
 - **Connection**: `ws://<host>/api/ws` — JWT auth on connect, heartbeat (ping/pong).
 - **Channels**: `user:{userId}`, `plan:{planId}`.
-- **Events emitted**: `plan.message.created`, `plan.proposal.created`,
-  `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`,
-  `notification.created`.
-- **Events NOT emitted** (known): `plan.cancelled`, `plan.completed`,
-  participant add/remove/update.
+- **Events emitted (11)** on `plan:{id}`: `plan.message.created`,
+  `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`,
+  `plan.unfinalized`, `plan.cancelled`, `plan.completed`,
+  `plan.participant.added`, `plan.participant.updated`,
+  `plan.participant.removed`; on `user:{id}`: `notification.created`.
+- **Frontend handling**: messages / proposals / votes merge in-place;
+  lifecycle and participant events trigger `fetchPlan` to resync state
+  across participants (`fest-app/src/api/wsHandler.ts`).
 - **Reconnect**: exponential backoff + resubscribe + data resync.
 - **Dedup**: `client_message_id` for messages, ID check for proposals,
   optimistic vote filtering.
@@ -83,7 +86,6 @@ Quick local (web) start:
 - No email auth.
 - No group chat — chat is plan-level only.
 - No event creation form — events are seed-only.
-- No real-time updates for plan cancellation, completion, or participant changes.
 - Max 15 participants per plan.
 - `fest-app/src/fest-animations/**` intentionally excluded from the main
   frontend TypeScript gate (`fest-app/tsconfig.json`). Validate separately

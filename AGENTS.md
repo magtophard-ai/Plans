@@ -64,21 +64,21 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 | `client.ts` | Base HTTP client, `camelize`, token management |
 | `auth.ts` | `POST /auth/otp/send`, `POST /auth/otp/verify`, `GET /auth/me` |
 | `events.ts` | `GET /events`, `POST/DELETE /events/:id/interest`, `POST/DELETE /events/:id/save` |
-| `plans.ts` | Full plan CRUD + proposals, votes, finalize/unfinalize, repeat, messages, invite participant |
+| `plans.ts` | Full plan CRUD + proposals, votes, finalize/unfinalize, repeat, messages, invite participant, share-link preview + join (`/plans/by-token/:token`) |
 | `invitations.ts` | `GET /invitations`, `PATCH /invitations/:id` (accept/decline) |
 | `notifications.ts` | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` |
 | `search.ts` | `GET /search/events` |
 | `ws.ts` | Singleton WS client: connect, disconnect, subscribe, unsubscribe, reconnect with exponential backoff, heartbeat/stale detection |
-| `wsHandler.ts` | Routes WS events (`plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `notification.created`) to stores |
+| `wsHandler.ts` | Routes WS events (`plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`, `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed`, `notification.created`) to stores |
 
 ### WebSocket (realtime)
 
 - **Protocol**: `ws://localhost:3001/api/ws` — auth via JWT, subscribe/unsubscribe channels
 - **REST is sole source of truth** — WS is push-only, no transactional writes in WS handlers
-- **Channels**: `user:{userId}` (notifications), `plan:{planId}` (messages, proposals, votes, lifecycle)
+- **Channels**: `user:{userId}` (notifications), `plan:{planId}` (messages, proposals, votes, lifecycle, participants)
 - **Frontend**: `ws.ts` singleton with reconnect + resync; `wsHandler.ts` routes to stores
 - **Dedup**: `pushMessage` uses `client_message_id` reconciliation + ID check; `pushProposal` uses ID check; `pushVote` filters optimistic votes
-- **Missing WS events**: `plan.cancelled`, `plan.completed`, participant changes do NOT emit WS — other participants must refresh manually
+- **Emitted events (11)**: `plan.message.created`, `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`, `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed` (all on `plan:{id}`); `notification.created` (on `user:{id}`). Lifecycle and participant events are merged in-place by refetching the plan on the frontend.
 
 ### Zustand stores (7)
 
@@ -103,13 +103,14 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 | File | Routes |
 |------|--------|
 | `auth.ts` | OTP mock (code `1111`), JWT |
-| `users.ts` | `/users/me`, `/users/friends` |
+| `users.ts` | `/users/me` (GET, PATCH), `/users/search`, `/users/friends`, `/users/friends/:id` (POST, PATCH, DELETE), `/users/:id` |
 | `events.ts` | Events + social proof (interested, saved, friends) |
 | `venues.ts` | Venues + events by venue |
-| `plans.ts` | Full plan CRUD, participants (GET/POST/PATCH/DELETE), proposals, votes, finalize/unfinalize, cancel/complete, repeat, messages |
+| `plans.ts` | Full plan CRUD, participants (GET/POST/PATCH/DELETE), proposals, votes, finalize/unfinalize, cancel/complete, repeat, messages, share-link preview/join (`GET /plans/by-token/:token`, `POST /plans/by-token/:token/join`) |
 | `invitations.ts` | List + PATCH (accept with atomic participant creation + 15-limit FOR UPDATE lock) |
 | `groups.ts` | List, get, invite-only member add |
 | `notifications.ts` | List + mark read |
+| `search.ts` | `GET /search/events` (text/date/category filters) |
 | `ws.ts` | WebSocket route: auth, subscribe/unsubscribe, heartbeat (ping/pong) |
 
 ## Product constraints
@@ -121,7 +122,7 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 - **Max 15 participants per plan**
 - **Chat is inside PlanDetails only** — no standalone chat
 - **Pre-meet** = simple text fields, no voting
-- **9 notification types** including `group_invite`
+- **11 notification types**: `plan_invite`, `group_invite`, `proposal_created`, `plan_finalized`, `plan_unfinalized`, `event_time_changed`, `event_cancelled`, `plan_reminder`, `plan_completed`, `friend_request`, `plan_join_via_link`
 - **No client-side notification creation** — all notifications created server-side
 
 ## Web layout conventions

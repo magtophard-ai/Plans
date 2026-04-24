@@ -164,4 +164,22 @@ Notifications are created server-side only. No client-side notification creation
 | Edit profile | PATCH | /users/me {name, username, avatar_url} | — | yes |
 | Load saved events | GET | /events (client filters by saved IDs, or server endpoint with ?saved=true) | — | — |
 | Load friends | GET | /users/friends?status=accepted | — | — |
+| Load incoming requests | GET | /users/friends?status=pending&direction=incoming | — | — |
+| Search users | GET | /users/search?q=...&limit=20 | — | — |
+| Send friend request | POST | /users/friends/:id | — | yes (side-effect: `friend_request` notification) |
+| Accept / decline friend request | PATCH | /users/friends/:id {action: accept \| decline} | — | yes |
+| Remove friend / cancel outgoing request | DELETE | /users/friends/:id | — | yes |
 | Logout | client-side | discard tokens | — | — |
+
+---
+
+## PlanShareLinkLandingScreen
+
+Entry: deep link `fest://p/:token` (e.g. from a share-sheet URL).
+
+| Action | Method | Endpoint | Optimistic | Server-confirmed |
+|---|---|---|---|---|
+| Load preview (unauth-OK) | GET | /plans/by-token/:token | — | — |
+| Join plan | POST | /plans/by-token/:token/join | — | yes (side-effect: creator gets `plan_join_via_link` notification) |
+
+Join requires auth. If caller isn't logged in, route through `AuthScreen` first and resume with the same token. If the caller is already a participant, the API returns `already_joined=true` and no duplicate notification is created.

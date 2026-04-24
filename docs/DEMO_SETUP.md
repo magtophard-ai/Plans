@@ -56,12 +56,15 @@ docker exec fest-pg pg_isready -U postgres
 ```
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/plans
 JWT_SECRET=dev-secret-change-me
-OTP_MOCK=1
+OTP_CODE=1111
 PORT=3001
 NODE_ENV=development
 ```
 
-`OTP_MOCK=1` → код всегда `1111`, никаких SMS не шлётся.
+`OTP_CODE=1111` — мок-код, который будет приниматься
+`POST /auth/otp/verify`. Реальный SMS-провайдер не подключён —
+`sendOtp` просто кладёт код в память. Если `OTP_CODE` не выставлен,
+бэк падает в дефолт `1111`.
 
 ### 2.2 Зависимости, миграции, сид
 
@@ -198,7 +201,7 @@ open qr.png   # macOS; на Linux: xdg-open qr.png
 ## 6. Smoke-проверки перед отправкой клиенту
 
 1. `curl $BACKEND_PUBLIC_URL/api/health` → `{"status":"ok"}`
-2. `curl -X POST $BACKEND_PUBLIC_URL/api/auth/otp/send -H 'content-type: application/json' -d '{"phone":"+79990000000"}'` → `{"ok":true}`
+2. `curl -X POST $BACKEND_PUBLIC_URL/api/auth/otp/send -H 'content-type: application/json' -d '{"phone":"+79990000000"}'` → `{}` (HTTP 200; пустое тело — это норма)
 3. `curl -X POST $BACKEND_PUBLIC_URL/api/auth/otp/verify -H 'content-type: application/json' -d '{"phone":"+79990000000","code":"1111"}'` → `{ "token": "...", "user": {...} }`
 4. С полученным `token`:
    `curl -H "authorization: Bearer $TOKEN" $BACKEND_PUBLIC_URL/api/events` → список из 6 событий.
@@ -275,7 +278,7 @@ additive-ALTER'ы поверх `001_init.sql`.
 
 ### OTP приходит «не тот»
 
-В dev у нас `OTP_MOCK=1` → код всегда `1111`. Реальный SMS-провайдер
+В dev у нас `OTP_CODE=1111` → код всегда `1111`. Реальный SMS-провайдер
 не подключён (это отдельный пункт в roadmap).
 
 ### `EXPO_PUBLIC_API_BASE_URL` не подхватился

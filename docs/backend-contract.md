@@ -285,7 +285,7 @@ CREATE TYPE proposal_status AS ENUM ('active','finalized','superseded');
 CREATE TYPE group_role AS ENUM ('member');
 CREATE TYPE invitation_type AS ENUM ('plan','group');
 CREATE TYPE invitation_status AS ENUM ('pending','accepted','declined');
-CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed');
+CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed','friend_request','plan_join_via_link');
 CREATE TYPE message_type AS ENUM ('user','system','proposal_card');
 CREATE TYPE message_context AS ENUM ('plan');
 
@@ -508,10 +508,25 @@ GET /users/friends
   response: 200 { friends: User[] }
 
 POST /users/friends/:id
-  response: 200 { friendship: Friendship }
+  response: 201 { friendship: Friendship }
+  side-effects: inserts a ‘pending’ friendship (or auto-accepts if the other
+                user had already sent a pending request); creates a
+                ‘friend_request’ notification for the addressee.
+
+PATCH /users/friends/:id
+  body: { action: 'accept' | 'decline' }
+  response: 200 { friendship: Friendship } on accept, 204 on decline
+  auth: only the addressee of a pending request may call this.
 
 DELETE /users/friends/:id
   response: 204
+
+GET /users/search
+  query: ?q=<substring>&limit=20  (q required, 1<=limit<=50)
+  response: 200 { users: (User & { friendship_status: 'friend' | 'request_sent' | 'request_received' | null })[] }
+  description: case-insensitive match on name/username; current viewer
+               excluded; friendship_status reflects the viewer's relationship
+               with each returned user.
 ```
 
 ### Events
@@ -616,6 +631,32 @@ POST /plans/:id/repeat
   side-effects: clones plan with same participants (status=invited) and activity_type,
                 place_status=undecided, time_status=undecided,
                 creates new invitations + notifications
+```
+
+### Plan Share Links
+
+```
+GET /plans/by-token/:token
+  auth: none (public preview)
+  response: 200 { plan: PlanSharePreview }
+  PlanSharePreview = {
+    id, title, activity_type, lifecycle_state,
+    confirmed_place_text, confirmed_time, share_token,
+    creator: User | null, participant_count, max_participants
+  }
+  404 if no plan has that share_token.
+
+POST /plans/by-token/:token/join
+  auth: bearer
+  response: 200 { already_joined: boolean, plan: PlanFull }
+  side-effects: adds caller as 'going' participant (FOR UPDATE lock,
+                15-participant cap); creates 'plan_join_via_link'
+                notification for the creator. If the caller was already
+                a participant, returns already_joined=true and does not
+                re-insert or re-notify.
+  400 INVALID_STATE  if plan is cancelled or completed.
+  404 NOT_FOUND      if the token does not match any plan.
+  409 PLAN_FULL      if plan already has 15 participants.
 ```
 
 ### Plan Participants

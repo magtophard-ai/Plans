@@ -177,6 +177,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FriendshipResponse"
+    patch:
+      tags: [users]
+      operationId: respondToFriendRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FriendActionRequest"
+      responses:
+        "200":
+          description: Friendship accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendshipResponse"
+        "204":
+          description: Friendship declined
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [users]
       operationId: removeFriend
@@ -187,6 +211,35 @@ paths:
       responses:
         "204":
           description: Friendship removed
+
+  /users/search:
+    get:
+      tags: [users]
+      operationId: searchUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Case-insensitive substring match against name/username.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: Matching users, with current-user friendship status embedded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSearchResponse"
 
   /events:
     get:
@@ -499,6 +552,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlanDetailResponse"
+
+  /plans/by-token/{token}:
+    get:
+      tags: [plans]
+      operationId: getPlanByShareToken
+      description: >-
+        Public preview for a share-link landing page. No auth required.
+        Returns a minimal plan payload so an unauthenticated user can decide
+        whether to sign in and join.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plan preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanSharePreviewResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /plans/by-token/{token}/join:
+    post:
+      tags: [plans]
+      operationId: joinPlanViaShareToken
+      description: >-
+        Join a plan via its share token. Caller is added as a `going`
+        participant (transactionally, with FOR UPDATE lock and 15-participant
+        cap). Creator receives a `plan_join_via_link` notification. If the
+        caller is already a participant, responds with `already_joined: true`
+        and the current plan state.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Joined (or already a participant)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanJoinViaShareTokenResponse"
+        "400":
+          description: Plan not joinable (cancelled/completed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Plan full (15 participants)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /plans/{id}/participants:
     get:
@@ -1095,7 +1212,7 @@ components:
       enum: [pending, accepted, declined]
     NotificationType:
       type: string
-      enum: [plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed]
+      enum: [plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed, friend_request, plan_join_via_link]
     MessageType:
       type: string
       enum: [user, system, proposal_card]
@@ -1243,6 +1360,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        share_token:
+          type: string
+          nullable: true
+          description: Opaque token for deep-link sharing (`fest://p/<token>`).
         created_at:
           type: string
           format: date-time
@@ -1864,3 +1985,91 @@ components:
       properties:
         notification:
           $ref: "#/components/schemas/Notification"
+
+    FriendActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [accept, decline]
+
+    UserWithFriendship:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          properties:
+            friendship_status:
+              type: string
+              nullable: true
+              enum: [friend, request_sent, request_received]
+              description: >-
+                Current-viewer friendship state with this user, if any.
+                `friend` = accepted; `request_sent` = viewer sent a pending
+                request; `request_received` = the other user sent a pending
+                request to the viewer. `null` means no relationship.
+
+    UserSearchResponse:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserWithFriendship"
+
+    PlanSharePreview:
+      type: object
+      required:
+        - id
+        - title
+        - activity_type
+        - lifecycle_state
+        - share_token
+        - participant_count
+        - max_participants
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        activity_type:
+          $ref: "#/components/schemas/ActivityType"
+        lifecycle_state:
+          $ref: "#/components/schemas/PlanLifecycle"
+        confirmed_place_text:
+          type: string
+          nullable: true
+        confirmed_time:
+          type: string
+          format: date-time
+          nullable: true
+        share_token:
+          type: string
+        creator:
+          allOf:
+            - $ref: "#/components/schemas/User"
+          nullable: true
+        participant_count:
+          type: integer
+        max_participants:
+          type: integer
+          description: Current participant cap (15).
+
+    PlanSharePreviewResponse:
+      type: object
+      required: [plan]
+      properties:
+        plan:
+          $ref: "#/components/schemas/PlanSharePreview"
+
+    PlanJoinViaShareTokenResponse:
+      type: object
+      required: [already_joined, plan]
+      properties:
+        already_joined:
+          type: boolean
+          description: True if the caller was already a participant before this request.
+        plan:
+          $ref: "#/components/schemas/PlanFull"

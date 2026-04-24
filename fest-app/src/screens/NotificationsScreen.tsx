@@ -23,6 +23,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   plan_reminder: 'Напоминание',
   plan_completed: 'План завершён',
   friend_request: 'Заявка в друзья',
+  plan_join_via_link: 'Присоединились по ссылке',
 };
 
 const TYPE_ICONS: Record<NotificationType, string> = {
@@ -36,6 +37,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   plan_reminder: '⏰',
   plan_completed: '🎉',
   friend_request: '🤝',
+  plan_join_via_link: '🔗',
 };
 
 const TYPE_ACCENT: Record<NotificationType, string> = {
@@ -49,9 +51,10 @@ const TYPE_ACCENT: Record<NotificationType, string> = {
   plan_reminder: theme.colors.primaryLight,
   plan_completed: theme.colors.success,
   friend_request: theme.colors.accent,
+  plan_join_via_link: theme.colors.info,
 };
 
-const PLAN_TYPES: NotificationType[] = ['plan_invite', 'proposal_created', 'plan_finalized', 'plan_unfinalized', 'plan_reminder', 'plan_completed'];
+const PLAN_TYPES: NotificationType[] = ['plan_invite', 'proposal_created', 'plan_finalized', 'plan_unfinalized', 'plan_reminder', 'plan_completed', 'plan_join_via_link'];
 const GROUP_TYPES: NotificationType[] = ['group_invite'];
 const EVENT_TYPES: NotificationType[] = ['event_time_changed', 'event_cancelled'];
 const USER_TYPES: NotificationType[] = ['friend_request'];
@@ -106,6 +109,7 @@ export const NotificationsScreen = ({ navigation }: Props) => {
               {payload.inviter_name ? <Text style={s.payloadText}>от {payload.inviter_name}</Text> : null}
               {payload.proposer_name ? <Text style={s.payloadText}>от {payload.proposer_name}</Text> : null}
               {payload.requester_name ? <Text style={s.payloadText}>от {payload.requester_name}</Text> : null}
+              {payload.joiner_name ? <Text style={s.payloadText}>{payload.joiner_name}</Text> : null}
               {payload.plan_title ? <Text style={s.payloadTitle} numberOfLines={1}>{payload.plan_title}</Text> : null}
               <Text style={s.time}>{formatTimeAgo(item.created_at)}</Text>
             </View>

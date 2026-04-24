@@ -183,7 +183,8 @@ export type NotificationType =
   | 'event_cancelled'
   | 'plan_reminder'
   | 'plan_completed'
-  | 'friend_request';
+  | 'friend_request'
+  | 'plan_join_via_link';
 
 export interface Notification {
   id: string;
