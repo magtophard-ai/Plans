@@ -1,6 +1,5 @@
 import { pool, query } from '../db/pool.js';
 import { createHmac } from 'crypto';
-import { readFile, writeFile } from 'fs/promises';
 import {
   cancelEventById,
   importNormalizedEvent,
@@ -133,10 +132,7 @@ async function main() {
   assert(duplicateBlocked, 'Fingerprint duplicate requires explicit --force-link-event-id');
 
   const syncOnly = eventPayload(`${seed}-sync-only`, '2030-05-03T18:00:00.000Z', `ops-${seed}-sync-only`);
-  const syncFile = `/home/ubuntu/content-ops-sync-${seed}.json`;
-  await writeFile(syncFile, JSON.stringify(syncOnly), 'utf8');
-  const syncImportedRaw = JSON.parse(await readFile(syncFile, 'utf8')) as unknown;
-  const syncImported = await importNormalizedEvent(syncImportedRaw);
+  const syncImported = await importNormalizedEvent(syncOnly);
   let syncBlocked = false;
   try {
     await updateFromIngestion(syncImported.id);
