@@ -127,6 +127,15 @@ async function main() {
   const friendsAfter: any = await api('/users/friends?status=accepted', tokenA);
   assert(friendsAfter.friends.some((f: any) => f.id === userBId), 'B appears in A friends after accept');
 
+  // A (the original requester) receives a `friend_accepted` notification
+  const notifA: any = await api('/notifications', tokenA);
+  const friendAccepted = notifA.notifications.find((n: any) =>
+    n.type === 'friend_accepted' && n.payload?.accepter_id === userBId
+  );
+  assert(!!friendAccepted, 'A receives friend_accepted notification after B accepts');
+  assert(typeof friendAccepted.payload?.accepter_name === 'string', 'friend_accepted payload includes accepter_name');
+  assert(typeof friendAccepted.payload?.friendship_id === 'string', 'friend_accepted payload includes friendship_id');
+
   // --- SECTION 4: Groups API ---
   console.log('\n4. Groups API');
   const groupsBefore: any = await api('/groups', tokenA);
