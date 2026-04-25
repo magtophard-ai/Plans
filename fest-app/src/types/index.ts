@@ -184,6 +184,7 @@ export type NotificationType =
   | 'plan_reminder'
   | 'plan_completed'
   | 'friend_request'
+  | 'friend_accepted'
   | 'plan_join_via_link';
 
 export interface Notification {

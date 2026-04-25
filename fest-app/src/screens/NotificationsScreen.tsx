@@ -23,6 +23,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   plan_reminder: 'Напоминание',
   plan_completed: 'План завершён',
   friend_request: 'Заявка в друзья',
+  friend_accepted: 'Заявка принята',
   plan_join_via_link: 'Присоединились по ссылке',
 };
 
@@ -37,6 +38,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   plan_reminder: '⏰',
   plan_completed: '🎉',
   friend_request: '🤝',
+  friend_accepted: '✅',
   plan_join_via_link: '🔗',
 };
 
@@ -51,13 +53,14 @@ const TYPE_ACCENT: Record<NotificationType, string> = {
   plan_reminder: theme.colors.primaryLight,
   plan_completed: theme.colors.success,
   friend_request: theme.colors.accent,
+  friend_accepted: theme.colors.success,
   plan_join_via_link: theme.colors.info,
 };
 
 const PLAN_TYPES: NotificationType[] = ['plan_invite', 'proposal_created', 'plan_finalized', 'plan_unfinalized', 'plan_reminder', 'plan_completed', 'plan_join_via_link'];
 const GROUP_TYPES: NotificationType[] = ['group_invite'];
 const EVENT_TYPES: NotificationType[] = ['event_time_changed', 'event_cancelled'];
-const USER_TYPES: NotificationType[] = ['friend_request'];
+const USER_TYPES: NotificationType[] = ['friend_request', 'friend_accepted'];
 
 export const NotificationsScreen = ({ navigation }: Props) => {
   const { notifications, markRead, markAllRead, unreadCount, loading, error, fetchNotifications } = useNotificationsStore();
@@ -82,8 +85,11 @@ export const NotificationsScreen = ({ navigation }: Props) => {
         screen: 'EventDetails',
         params: { eventId: payload.event_id as string },
       });
-    } else if (USER_TYPES.includes(item.type) && payload.requester_id) {
-      (navigation as any).navigate('PublicProfile', { userId: payload.requester_id as string });
+    } else if (USER_TYPES.includes(item.type)) {
+      const targetUserId = (payload.accepter_id ?? payload.requester_id) as string | undefined;
+      if (targetUserId) {
+        (navigation as any).navigate('PublicProfile', { userId: targetUserId });
+      }
     }
   };
 
@@ -109,6 +115,7 @@ export const NotificationsScreen = ({ navigation }: Props) => {
               {payload.inviter_name ? <Text style={s.payloadText}>от {payload.inviter_name}</Text> : null}
               {payload.proposer_name ? <Text style={s.payloadText}>от {payload.proposer_name}</Text> : null}
               {payload.requester_name ? <Text style={s.payloadText}>от {payload.requester_name}</Text> : null}
+              {payload.accepter_name ? <Text style={s.payloadText}>{payload.accepter_name}</Text> : null}
               {payload.joiner_name ? <Text style={s.payloadText}>{payload.joiner_name}</Text> : null}
               {payload.plan_title ? <Text style={s.payloadTitle} numberOfLines={1}>{payload.plan_title}</Text> : null}
               <Text style={s.time}>{formatTimeAgo(item.created_at)}</Text>
