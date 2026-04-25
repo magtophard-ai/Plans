@@ -1,4 +1,5 @@
 import { NativeModules, Platform } from 'react-native';
+import { useConnectivityStore, isCurrentlyOffline } from '../stores/connectivityStore';
 
 const trimTrailingSlashes = (value: string) => value.replace(/\/+$/, '');
 
@@ -45,11 +46,31 @@ export const api = async <T>(path: string, options: { method?: string; body?: un
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!noAuth && authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  // Short-circuit mutating calls when the browser tells us we're offline.
+  // Reads still hit fetch() so the failure path (and connectivity banner)
+  // still fires for transient TCP errors. Native stays untouched —
+  // `online` is `null` there.
+  const isMutation = method !== 'GET' && method !== 'HEAD';
+  if (isMutation && isCurrentlyOffline()) {
+    const error: any = new Error('Нет соединения. Проверьте интернет.');
+    error.code = 'OFFLINE';
+    useConnectivityStore.getState().recordNetworkError();
+    throw error;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e: any) {
+    // fetch() throws TypeError on DNS / TCP / CORS / abort failures.
+    // Mark connectivity so the banner can pick it up.
+    useConnectivityStore.getState().recordNetworkError();
+    throw e;
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -58,6 +79,10 @@ export const api = async <T>(path: string, options: { method?: string; body?: un
       payload = text ? JSON.parse(text) : null;
     } catch {}
 
+    if (res.status >= 500 || res.status === 0) {
+      useConnectivityStore.getState().recordNetworkError();
+    }
+
     const message = payload?.message || `HTTP ${res.status}`;
     const error: any = new Error(message);
     error.status = res.status;
@@ -65,6 +90,9 @@ export const api = async <T>(path: string, options: { method?: string; body?: un
     error.body = payload ?? text;
     throw error;
   }
+
+  // 2xx — server reachable.
+  useConnectivityStore.getState().recordNetworkSuccess();
 
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {

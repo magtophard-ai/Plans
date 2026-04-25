@@ -30,6 +30,7 @@ import { PublicPlanScreen } from './src/screens/PublicPlanScreen';
 import { PublicProfileScreen } from './src/screens/PublicProfileScreen';
 import type { HomeStackParamList, PlansStackParamList, RootStackParamList } from './src/navigation/types';
 import { clearPendingJoinToken, extractShareTokenFromUrl, getPendingJoinToken, setPendingJoinToken } from './src/utils/pendingJoin';
+import { ConnectivityBanner } from './src/components/ConnectivityBanner';
 
 const Tab = createBottomTabNavigator();
 const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
@@ -186,7 +187,12 @@ export default function App() {
   } else {
     content = <AppNavigator />;
   }
-  return <SafeAreaProvider>{content}</SafeAreaProvider>;
+  return (
+    <SafeAreaProvider>
+      <ConnectivityBanner />
+      {content}
+    </SafeAreaProvider>
+  );
 }
 
 const s = StyleSheet.create({

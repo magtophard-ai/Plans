@@ -167,11 +167,20 @@ export const NotificationsScreen = ({ navigation }: Props) => {
               refreshing={loading && notifications.length > 0}
               onRefresh={fetchNotifications}
               ListEmptyComponent={
-                <EmptyState
-                  icon="🔔"
-                  title="Пока тихо"
-                  body="Когда друзья позовут или что-то изменится — сообщим"
-                />
+                error ? (
+                  <EmptyState
+                    icon="⚠️"
+                    title="Не удалось загрузить уведомления"
+                    body={error}
+                    cta={{ label: 'Повторить', onPress: fetchNotifications }}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="🔔"
+                    title="Пока тихо"
+                    body="Когда друзья позовут или что-то изменится — сообщим"
+                  />
+                )
               }
             />
           )}

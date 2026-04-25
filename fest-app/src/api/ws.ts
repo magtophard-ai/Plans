@@ -2,8 +2,11 @@ import { getToken } from './client';
 import { camelize } from './client';
 import { WS_BASE } from './client';
 
+export type WsConnectionStatus = 'idle' | 'connected' | 'reconnecting';
+
 type WsEventHandler = (channel: string, event: string, payload: any) => void;
 type ReconnectCallback = () => void;
+type StatusListener = (status: WsConnectionStatus) => void;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -13,6 +16,14 @@ let handler: WsEventHandler | null = null;
 let userId: string | null = null;
 let onReconnectCb: ReconnectCallback | null = null;
 let wasReconnect = false;
+let currentStatus: WsConnectionStatus = 'idle';
+let statusListener: StatusListener | null = null;
+
+function setStatus(next: WsConnectionStatus) {
+  if (currentStatus === next) return;
+  currentStatus = next;
+  if (statusListener) statusListener(next);
+}
 
 let staleTimer: ReturnType<typeof setInterval> | null = null;
 let lastMsgTime = 0;
@@ -50,6 +61,7 @@ function connect() {
 
   ws.onopen = () => {
     reconnectAttempts = 0;
+    setStatus('connected');
     ws!.send(JSON.stringify({ type: 'auth', token }));
   };
 
@@ -83,12 +95,14 @@ function connect() {
   ws.onclose = () => {
     ws = null;
     stopStaleDetection();
+    setStatus('reconnecting');
     scheduleReconnect();
   };
 
   ws.onerror = () => {
     ws = null;
     stopStaleDetection();
+    setStatus('reconnecting');
     scheduleReconnect();
   };
 }
@@ -106,6 +120,7 @@ export function startWs() {
   subscriptions.clear();
   reconnectAttempts = 0;
   wasReconnect = false;
+  setStatus('reconnecting');
   connect();
 }
 
@@ -117,6 +132,7 @@ export function stopWs() {
   userId = null;
   reconnectAttempts = 0;
   wasReconnect = false;
+  setStatus('idle');
 }
 
 export function subscribe(channel: string) {
@@ -139,6 +155,15 @@ export function setHandler(h: WsEventHandler) {
 
 export function setOnReconnect(cb: ReconnectCallback) {
   onReconnectCb = cb;
+}
+
+export function setOnStatusChange(cb: StatusListener | null) {
+  statusListener = cb;
+  if (cb) cb(currentStatus);
+}
+
+export function getWsStatus(): WsConnectionStatus {
+  return currentStatus;
 }
 
 export function getSubscriptions(): Set<string> {
