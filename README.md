@@ -90,6 +90,7 @@ docker — see `AGENTS.md` for `psql` and connection details.
 - Optional animation sandbox: `cd fest-app && npx tsc --noEmit -p tsconfig.fest-animations.json`
 - Backend REST smoke: `cd backend && npx tsx src/tests/e2e-smoke.ts` (needs backend running)
 - Backend realtime smoke: `cd backend && npx tsx src/tests/rt2-smoke.ts` (needs backend running)
+- Backend content ops smoke: `cd backend && npx tsx src/tests/content-ops-smoke.ts` (needs backend running)
 
 `fest-app/src/fest-animations/**` is intentionally excluded from the main
 frontend TypeScript gate.
@@ -103,6 +104,7 @@ Every PR and every push to `master` runs four jobs in parallel
 - `frontend typecheck`
 - `backend e2e smoke` — Postgres 17 service, migrate, seed, start backend, `e2e-smoke.ts`
 - `backend realtime smoke` — same setup, `rt2-smoke.ts`
+- `backend content ops smoke` — same setup, `content-ops-smoke.ts`
 
 All four must be green to merge.
 

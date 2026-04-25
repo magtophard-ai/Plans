@@ -35,7 +35,7 @@ async function getPlanFull(planId: string) {
     if (e) linked_event = {
       id: e.id, venue_id: e.venue_id, title: e.title, description: e.description,
       cover_image_url: e.cover_image_url, starts_at: e.starts_at, ends_at: e.ends_at,
-      category: e.category, tags: e.tags, price_info: e.price_info, external_url: e.external_url, created_at: e.created_at,
+      category: e.category, tags: e.tags, price_info: e.price_info, external_url: e.external_url, status: e.status, cancelled_at: e.cancelled_at, cancellation_reason: e.cancellation_reason, created_at: e.created_at,
       venue: { id: e.v_id, name: e.v_name, description: e.v_desc, address: e.v_addr, lat: e.v_lat, lng: e.v_lng, cover_image_url: e.v_cover, created_at: e.v_created },
       friends_interested: [], friends_plan_count: 0,
     };

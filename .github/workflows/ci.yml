@@ -157,3 +157,61 @@ jobs:
           done
           curl -sf http://localhost:3001/api/health || { echo "backend never became ready"; exit 1; }
           npx tsx src/tests/rt2-smoke.ts
+
+  content-ops-smoke:
+    name: backend content ops smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: plans
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/plans
+      JWT_SECRET: dev-secret-for-ci-only-not-used-in-prod
+      OTP_CODE: "1111"
+      PORT: "3001"
+      NODE_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Migrate + seed
+        run: |
+          npm run db:migrate
+          npm run db:seed
+      - name: Run backend + content ops smoke
+        run: |
+          set -eo pipefail
+          nohup npm run start > /tmp/backend.log 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill $BACKEND_PID 2>/dev/null || true; cat /tmp/backend.log' EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/api/health >/dev/null; then
+              echo "backend ready after ${i}s"
+              break
+            fi
+            if ! kill -0 $BACKEND_PID 2>/dev/null; then
+              echo "backend process died"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3001/api/health || { echo "backend never became ready"; exit 1; }
+          npx tsx src/tests/content-ops-smoke.ts

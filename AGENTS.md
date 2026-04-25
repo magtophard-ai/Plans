@@ -38,6 +38,11 @@ commands with `$env:npm_config_cache="E:\npm-cache";` as described in
 | Start backend | `npm run start` (workdir: `backend/`) |
 | REST smoke | `npx tsx src/tests/e2e-smoke.ts` (workdir: `backend/`; backend must be running) |
 | Realtime smoke | `npx tsx src/tests/rt2-smoke.ts` (workdir: `backend/`; backend must be running) |
+| Content ops smoke | `npx tsx src/tests/content-ops-smoke.ts` (workdir: `backend/`; backend must be running) |
+| Content ops import | `npm run ops:import -- --file path/to/event.json` (workdir: `backend/`) |
+| Content ops publish | `npm run ops:publish -- --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]` (workdir: `backend/`) |
+| Content ops update | `npm run ops:update -- --ingestion-id <id>` (workdir: `backend/`) |
+| Content ops cancel | `npm run ops:cancel -- --event-id <id> --reason "..."` (workdir: `backend/`) |
 
 No `npm test` script exists. No linter is configured — use `tsc --noEmit` as the verification gate. Always run it after code changes.
 
@@ -123,6 +128,14 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 | `notifications.ts` | List + mark read |
 | `search.ts` | `GET /search/events` (text/date/category filters) |
 | `ws.ts` | WebSocket route: auth, subscribe/unsubscribe, heartbeat (ping/pong) |
+
+### Content Ops CLI
+
+- Internal real-event supply is CLI-first; no public admin UI or venue self-serve.
+- `npm run ops:import -- --file path/to/event.json` imports a manually normalized JSON payload into `event_ingestions`; `--source-url` is metadata only and does not fetch/parse.
+- Required JSON fields: `source_type`, `title`, `starts_at`, `ends_at`, `venue_name`, `address`, `cover_image_url`; optional: `source_url`, `source_event_key`, `description`, `external_url`, `category`, `tags`, `price_info`, `operator_note`.
+- Publish/update/cancel through `ops:publish`, `ops:update`, `ops:sync`, and `ops:cancel`; duplicate protection is exact source key first, fingerprint duplicate candidates require `--force-link-event-id`.
+- Public lists (`GET /events`, `/search/events`, `/venues/:id/events`) show only `events.status='published'`; `GET /events/:id` can return cancelled events so linked plans/notifications do not 404.
 
 ## Product constraints
 

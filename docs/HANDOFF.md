@@ -37,6 +37,10 @@ fresh owner (or forked copy) should know before picking up the next task.
 - **Not in near-term scope**: map mode, real SMS OTP, push notifications,
   venue self-serve / admin, monetization, web-only responsive redesign,
   group chat, calendar entity, email auth, event creation UI, dark theme.
+- **Content Ops v1**: real-event supply is internal CLI-only. Operators
+  provide normalized JSON; no scraping/parsers, public admin UI, or venue
+  self-serve. The workflow is import into `event_ingestions`, publish/update
+  `events`, or cancel existing events.
 
 ### Current technical state
 
@@ -82,12 +86,13 @@ fresh owner (or forked copy) should know before picking up the next task.
   result set); chat is `?before=<created_at>` cursor + id-based dedup,
   loading older messages when the user scrolls to the top of the
   inverted `FlatList`.
-- **Tests / CI**: `backend/src/tests/e2e-smoke.ts` (59 checks) and
-  `backend/src/tests/rt2-smoke.ts` (17 checks) are the two always-on
-  smoke suites. `.github/workflows/ci.yml` runs four jobs per PR (backend
-  typecheck, frontend typecheck, backend e2e smoke, backend realtime
-  smoke) with a Postgres 17 service. Devin Review is also wired up on
-  every PR. There is no unit-test framework and no lint.
+- **Tests / CI**: `backend/src/tests/e2e-smoke.ts` (59 checks),
+  `backend/src/tests/rt2-smoke.ts` (17 checks), and
+  `backend/src/tests/content-ops-smoke.ts` are the always-on smoke suites.
+  `.github/workflows/ci.yml` runs five jobs per PR (backend typecheck,
+  frontend typecheck, backend e2e smoke, backend realtime smoke, backend
+  content ops smoke) with a Postgres 17 service. Devin Review is also wired
+  up on every PR. There is no unit-test framework and no lint.
 
 ### Recently merged work (latest PRs on top)
 
@@ -159,28 +164,22 @@ UX exist; the seed is 6 synthetic events; there is no way to get real
 concerts / standup / exhibitions into the feed without editing
 `seed.ts`.
 
-Scope for v1 (intentionally internal, not a self-serve product):
+Scope now shipped for v1 (intentionally internal, not a self-serve product):
 
-- A small **internal workflow** to turn a source URL / calendar feed
-  into a published event: **source → verify → publish → update/cancel**.
-- Event shape extensions if needed (explicit `status`, `last_updated_at`,
-  `source_url`, cancellation reason), added through
-  `backend/src/db/migrate.ts` — NOT by editing `001_init.sql`.
-- A minimal operator surface (CLI script or admin-only endpoint — not a
-  new screen, not a venue portal) for the internal team to run the
-  workflow. Auth for this is a separate admin token or a flag on the
-  seed "Я" user; do not invent a role system yet.
-- Hooks for **update / cancel** propagation: `event_time_changed` and
-  `event_cancelled` notifications already exist as types — the pipeline
-  must emit them when it mutates an event.
+- A small **internal workflow** for normalized JSON, not parser bots:
+  `event_ingestions` → publish/update/cancel `events`.
+- Event shape extensions (`status`, source metadata, cancellation fields)
+  added only through `backend/src/db/migrate.ts`; `001_init.sql` is left as
+  the initial schema.
+- A minimal CLI operator surface (`npm run ops:import/list/publish/update/sync/cancel`)
+  for the internal team. No HTTP admin endpoint and no frontend screen.
+- Hooks for **update / cancel** propagation use existing notifications:
+  `event_time_changed` and `event_cancelled`.
+- Duplicate protection is conservative: exact source key updates the same
+  event, fingerprint candidates require `--force-link-event-id`.
 - No venue self-serve, no public admin panel, no map, no monetization.
   This is strictly about feeding real data into the existing feed so
   closed beta has something to plan around.
-
-Suggested first step for the next session: read the last three PR
-descriptions (`#2`, `#3`, `#4`) plus this checkpoint, then propose a
-concrete shape for Content Ops v1 before writing any code. User has
-said not to start content work inside the checkpoint PR itself.
 
 ---
 

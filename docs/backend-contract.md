@@ -108,9 +108,53 @@ System-managed. No user writes.
 | tags | text[] | |
 | price_info | varchar(100) NULL | |
 | external_url | text NULL | |
+| status | text | `published` or `cancelled`; public lists only return `published` |
+| source_type | text NULL | Internal Content Ops source namespace |
+| source_url | text NULL | Operator metadata; no backend fetch/parse in v1 |
+| source_event_key | text NULL | Exact idempotency key within `source_type` |
+| source_fingerprint | text NULL | Conservative duplicate candidate key |
+| source_updated_at | timestamptz NULL | Timestamp of the last normalized source update |
+| last_ingested_at | timestamptz NULL | Last Content Ops write touching the event |
+| updated_at | timestamptz | |
+| cancelled_at | timestamptz NULL | |
+| cancellation_reason | text NULL | |
 | created_at | timestamptz | |
 
-Index on starts_at DESC (feed), category (filter), tags GIN (search).
+Index on starts_at DESC (feed), category (filter), tags GIN (search), status +
+starts_at (public lists), unique `(source_type, source_event_key)` when source
+key exists.
+
+### event_ingestions
+Internal operator queue for Content Ops v1. No public HTTP surface and no
+frontend UI.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| source_type | text | Required source namespace |
+| source_url | text NULL | Metadata only |
+| source_event_key | text NULL | Exact idempotency key |
+| raw_payload | jsonb | Original normalized JSON |
+| title | varchar(200) | Normalized snapshot |
+| description | text | |
+| starts_at | timestamptz | |
+| ends_at | timestamptz | |
+| venue_name | varchar(200) | |
+| address | varchar(300) | |
+| cover_image_url | text | |
+| external_url | text NULL | |
+| category | event_category | |
+| tags | text[] | |
+| price_info | varchar(100) NULL | |
+| fingerprint | text | Conservative duplicate candidate key |
+| state | text | `imported`, `duplicate`, `published`, `cancelled` |
+| linked_event_id | uuid FK→events NULL | |
+| duplicate_of_event_id | uuid FK→events NULL | Requires explicit force publish |
+| operator_note | text NULL | |
+| first_seen_at | timestamptz | |
+| last_seen_at | timestamptz | |
+| published_at | timestamptz NULL | |
+| updated_at | timestamptz | |
 
 ### event_interests
 
@@ -334,11 +378,53 @@ CREATE TABLE events (
   tags text[] NOT NULL DEFAULT '{}',
   price_info varchar(100),
   external_url text,
+  status text NOT NULL DEFAULT 'published',
+  source_type text,
+  source_url text,
+  source_event_key text,
+  source_fingerprint text,
+  source_updated_at timestamptz,
+  last_ingested_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  cancelled_at timestamptz,
+  cancellation_reason text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_events_starts_at ON events (starts_at DESC);
 CREATE INDEX idx_events_category ON events (category);
 CREATE INDEX idx_events_tags ON events USING GIN (tags);
+CREATE INDEX idx_events_status_starts_at ON events (status, starts_at DESC);
+CREATE UNIQUE INDEX idx_events_source_key_unique ON events (source_type, source_event_key) WHERE source_event_key IS NOT NULL;
+
+CREATE TABLE event_ingestions (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  source_type text NOT NULL,
+  source_url text,
+  source_event_key text,
+  raw_payload jsonb NOT NULL,
+  title varchar(200) NOT NULL,
+  description text NOT NULL DEFAULT '',
+  starts_at timestamptz NOT NULL,
+  ends_at timestamptz NOT NULL,
+  venue_name varchar(200) NOT NULL,
+  address varchar(300) NOT NULL,
+  cover_image_url text NOT NULL,
+  external_url text,
+  category event_category NOT NULL DEFAULT 'other',
+  tags text[] NOT NULL DEFAULT '{}',
+  price_info varchar(100),
+  fingerprint text NOT NULL,
+  state text NOT NULL DEFAULT 'imported',
+  linked_event_id uuid REFERENCES events(id),
+  duplicate_of_event_id uuid REFERENCES events(id),
+  operator_note text,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  published_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT event_ingestions_state_check CHECK (state IN ('imported', 'duplicate', 'published', 'cancelled')),
+  CONSTRAINT event_ingestions_unique_source UNIQUE (source_type, source_event_key)
+);
 
 CREATE TABLE event_interests (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -540,9 +626,11 @@ GET /events
   query: ?category=...&tags=...&date_from=...&date_to=...&page=...&limit=20
   response: 200 { events: EventWithSocial[], total: number }
   EventWithSocial = Event & { venue: Venue, friends_interested: User[], friends_plan_count: number }
+  only returns events where status='published'
 
 GET /events/:id
   response: 200 { event: EventWithSocial }
+  may return status='cancelled' so linked plans and notifications do not 404
 
 POST /events/:id/interest
   response: 200 { }
@@ -566,7 +654,39 @@ GET /venues/:id
 GET /venues/:id/events
   query: ?page=...&limit=20
   response: 200 { events: Event[], total: number }
+  only returns events where status='published'
 ```
+
+### Internal Content Ops CLI
+
+CLI-only v1; no OpenAPI endpoints.
+
+```
+npm run ops:import -- --file path/to/event.json [--source-url https://...]
+  imports manually normalized JSON into event_ingestions
+
+npm run ops:list -- --state imported|duplicate|published|cancelled
+  lists operator queue
+
+npm run ops:publish -- --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]
+  publishes imported ingestion to events, or explicitly links a duplicate candidate
+
+npm run ops:update -- --ingestion-id <id>
+  updates the same event when the ingestion/source key is already linked
+
+npm run ops:sync -- --file path/to/event.json [--source-url https://...]
+  import + update in one operator command when source key already maps to an event
+
+npm run ops:cancel -- --event-id <id> --reason "..."
+  marks events.status='cancelled', keeps detail readable, emits event_cancelled
+```
+
+Duplicate protection is conservative: exact `(source_type, source_event_key)`
+updates an existing event; fingerprint matches without a source key create a
+`duplicate` ingestion and require `--force-link-event-id`. Time updates emit
+`event_time_changed` with `{ event_id, event_title, old_starts_at,
+new_starts_at }` to participants of plans linked to that event. Cancels emit
+`event_cancelled` with `{ event_id, event_title, cancellation_reason }`.
 
 ### Plans
 
@@ -766,6 +886,7 @@ DELETE /groups/:id/members/:uid
 GET /search/events
   query: ?q=...&category=...&date_from=...&date_to=...&page=...&limit=20
   response: 200 { events: EventWithSocial[], total: number }
+  only returns events where status='published'
 ```
 
 ### Notifications

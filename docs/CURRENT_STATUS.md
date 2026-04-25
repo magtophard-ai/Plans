@@ -17,7 +17,7 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
   creation, and the `messages.client_message_id` migration all work.
 - Observability (Sentry + PostHog) is shipped on both backend and frontend.
 - CI (GitHub Actions) gates every PR on backend + frontend typecheck, backend
-  REST/HTTP smoke, and realtime (WebSocket) smoke. See
+  REST/HTTP smoke, realtime (WebSocket) smoke, and content-ops smoke. See
   [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 ## Implementation status
@@ -34,7 +34,7 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 | Feature | Status |
 |---------|--------|
 | Auth (OTP) | **Mock** — code is always `1111`, no SMS sent (P0b explicitly deferred) |
-| Events | Seed-only, read-only from API |
+| Events | API-backed public feed plus internal CLI Content Ops v1 for normalized real-event import/publish/update/cancel |
 | Venues | Seed-only, read-only from API |
 | Plans | Full CRUD + lifecycle, all API-backed |
 | Proposals + votes | Full API-backed |
@@ -51,6 +51,7 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 | Per-operation errors | `plansStore.operationErrors` keyed by `PlanOp` (15 ops) — `create`, `sendMessage`, `vote`, `finalize`, etc. fail independently. Stale `sendMessage` error auto-clears on connectivity recovery (`online: false → true` or WS `reconnecting → connected`). |
 | Connectivity UX | Top `ConnectivityBanner` aggregates browser `online`, WS `wsStatus`, and recent network errors into red (offline) / amber (reconnecting) strips. `api/client.ts` short-circuits mutations with `code: 'OFFLINE'` when offline. |
 | Pagination | Home feed `onEndReached` + footer (disabled when a category filter is active, by design); PlanDetails chat loads older messages via `?before=` cursor with id-based dedup. |
+| Content Ops | CLI-only internal workflow: normalized JSON → `event_ingestions` → publish/update/cancel `events`; no public admin UI, no venue self-serve, no scraping/parsers. Public event lists show only `published`; cancelled details remain readable by id. |
 
 ## Realtime
 
@@ -90,7 +91,7 @@ Quick local (web) start:
 - No map view.
 - No email auth.
 - No group chat — chat is plan-level only.
-- No event creation form — events are seed-only.
+- No user-facing event creation form. Internal content ops is CLI-only from normalized JSON; no parser bots or public admin UI.
 - Max 15 participants per plan.
 - `fest-app/src/fest-animations/**` intentionally excluded from the main
   frontend TypeScript gate (`fest-app/tsconfig.json`). Validate separately
@@ -124,6 +125,8 @@ Quick local (web) start:
   `/api/health`, then runs `backend/src/tests/e2e-smoke.ts`.
 - `backend realtime smoke` — same setup, runs
   `backend/src/tests/rt2-smoke.ts`.
+- `backend content ops smoke` — same setup, runs
+  `backend/src/tests/content-ops-smoke.ts`.
 
-All four jobs must be green to merge. They run in parallel with independent
+All five jobs must be green to merge. They run in parallel with independent
 Postgres instances.
