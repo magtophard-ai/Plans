@@ -1,4 +1,12 @@
-# FEST MVP — Runbook
+# FEST MVP — Runbook (Windows / PowerShell)
+
+This is the Windows/PowerShell runbook that was written for the author's dev
+box. For Linux / macOS use `README.md` and `docs/DEMO_SETUP.md` instead; the
+steps are equivalent but use docker-based Postgres and bash-style env vars.
+
+All commands below are relative to the repo root (wherever you cloned it).
+On the canonical dev box that is `E:\FEST\V1\`; substitute your own clone
+path as needed.
 
 ## Prerequisites
 
@@ -13,18 +21,18 @@
 # 1. Create the database
 & "C:\Program Files\PostgreSQL\17\bin\psql" -U postgres -c "CREATE DATABASE plans"
 
-# 2. Install backend deps
-cd E:\FEST\V1\backend
+# 2. Install backend deps (disk C full on canonical dev box — redirect npm cache)
+cd .\backend
 $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 
 # 3. Run migration
-E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\migrate.ts
+npm run db:migrate
 
 # 4. Seed demo data
-E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\seed.ts
+npm run db:seed
 
 # 5. Install frontend deps
-cd E:\FEST\V1\fest-app
+cd ..\fest-app
 $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 ```
 
@@ -33,15 +41,15 @@ $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 ### Backend (terminal 1)
 
 ```powershell
-cd E:\FEST\V1\backend
-E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\index.ts
+cd .\backend
+npm run start
 # → http://localhost:3001
 ```
 
 ### Frontend web (terminal 2)
 
 ```powershell
-cd E:\FEST\V1\fest-app
+cd .\fest-app
 npx expo start --web
 # → http://localhost:8081
 ```
@@ -49,7 +57,7 @@ npx expo start --web
 ### Frontend mobile dev (terminal 3, optional)
 
 ```powershell
-cd E:\FEST\V1\fest-app
+cd .\fest-app
 $env:EXPO_PUBLIC_API_BASE_URL="http://<YOUR_LAN_IP>:3001/api"
 npx expo start --go --tunnel
 # Open with Expo Go / emulator from Metro UI
@@ -64,7 +72,7 @@ npx expo start --go --tunnel
 
 ## Environment variables
 
-File: `E:\FEST\V1\backend\.env`
+File: `backend\.env` (see `backend\.env.example` for the template)
 
 | Variable | Default | Purpose |
 |----------|---------|---------|

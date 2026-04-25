@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-24 (post demo-stack + Phase-0)
+# Session Handoff
 
 This document is the forward-looking handoff: **what is next, which
 branches/PRs are in flight, and the gotchas you will hit on a fresh clone**.
@@ -6,13 +6,185 @@ For "what is shipped today", read [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md
 For a step-by-step runbook to stand the demo stack up for real-device testing
 through Expo Go, read [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 
-Previous handoff (P2 — onboarding + empty states) was delivered and merged;
-its content is now reflected in `CURRENT_STATUS.md`. The old version of this
-file (2026-04-22) is preserved in git history if you need the P1/P2 narrative.
+Historical narrative (demo-stack fixes, Phase-0 docs/CI, etc.) lives further
+down the file; the top section is the most recent checkpoint.
 
 ---
 
-## TL;DR
+## Checkpoint — 2026-04-25
+
+The repo just finished a beta-hardening cycle and is about to pivot from
+core planning work to content/events supply. Anything below is what a
+fresh owner (or forked copy) should know before picking up the next task.
+
+### Current product state
+
+- **Product**: "Планы?" / Fest&Rest — mobile-first social event discovery
+  and planning. Core loop: _discover event → save/interest → create a
+  shared plan → discuss+propose+vote inside the plan → finalize
+  place/time → attend → later repeat with the same people_.
+- **Main screens**: Home (event feed), Event Details, Venue Details,
+  Create Plan, Plans Hub (my plans + invitations + groups), Plan Details
+  (overview / proposals / chat / participants), Notifications, Profile,
+  Public Profile, Auth, Onboarding, plus the `PlanShareLinkLanding`
+  screen for `fest://p/:token` deep links.
+- **MVP scope (frozen)**: 4 slices (REST read + minimal writes → plan
+  lifecycle + participants + invitations + groups + notifications →
+  proposals + voting + finalize + repeat + messages → WS realtime) are
+  all shipped and API-backed. Onboarding, empty states, observability,
+  CI, per-op errors, offline/reconnect UX, feed + chat pagination, and
+  `friend_accepted` notifications are layered on top.
+- **Not in near-term scope**: map mode, real SMS OTP, push notifications,
+  venue self-serve / admin, monetization, web-only responsive redesign,
+  group chat, calendar entity, email auth, event creation UI, dark theme.
+
+### Current technical state
+
+- **Frontend**: Expo SDK 54 + React Native + TypeScript, Zustand (7 stores),
+  React Navigation 7 (RootStack → MainTabs → HomeStack / PlansStack).
+  `ScreenContainer` wraps every screen (`maxWidth: 600` on web, safe-area
+  on native). `theme.spacing` is Platform-adapted — never hardcode padding.
+- **Backend**: Fastify + TypeScript + PostgreSQL 17 (`pg` driver). Single
+  `backend/src/index.ts` entry, route plugins under
+  `backend/src/routes/*.ts`, DB helpers under `backend/src/db/*.ts`.
+- **DB**: `contracts/mvp/db/001_init.sql` is the initial schema; any column
+  added after init must go through `backend/src/db/migrate.ts` as an
+  idempotent `ALTER TABLE … IF NOT EXISTS`. The 12-value `notification_type`
+  enum is derived from `backend/src/db/notifications.ts:NOTIFICATION_TYPES`
+  (one source of truth for typed inserts + enum migration).
+- **Auth**: phone + OTP. `OTP_CODE` env (defaults to `1111`) is accepted
+  for any phone. JWT access token, no refresh rotation in MVP. No real
+  SMS provider.
+- **Realtime**: single WS endpoint `ws://<host>/api/ws`, JWT auth on
+  connect, `subscribe`/`unsubscribe` messages per channel (`user:{userId}`,
+  `plan:{planId}`). 11 emitted events (see `CURRENT_STATUS.md`). REST
+  remains the only source of truth; WS is push-only.
+- **Notifications**: all server-created (no client insert path). One
+  `insertNotification(type, user_id, payload)` helper in
+  `backend/src/db/notifications.ts` writes the row **and** emits
+  `notification.created` on the recipient's `user:{id}` channel. Adding a
+  new type only requires adding a string literal to `NOTIFICATION_TYPES`
+  plus the four frontend constants (`TYPE_LABELS`, `TYPE_ICONS`,
+  `TYPE_ACCENT`, `PLAN_TYPES` if applicable).
+- **Per-op errors**: `plansStore.operationErrors: Partial<Record<PlanOp, string>>`
+  (15 ops). No shared global error. `operationErrors.sendMessage`
+  auto-clears on connectivity recovery (subscription inside
+  `ConnectivityBanner.tsx`). Optimistic updates (vote, interest/save)
+  remain immutable-rollback.
+- **Offline / reconnect**: `connectivityStore` aggregates browser `online`,
+  `wsStatus` (from `api/ws.ts`), and recent network errors. One
+  `ConnectivityBanner` at the app root renders red "Нет соединения"
+  (offline) and amber "Восстанавливаем соединение…" (WS reconnecting).
+  `api/client.ts` short-circuits mutations with `code: 'OFFLINE'` when
+  the browser reports offline.
+- **Pagination**: feed is `onEndReached` + footer (disabled when a
+  category filter is active — client-side filter, paginated server-side
+  result set); chat is `?before=<created_at>` cursor + id-based dedup,
+  loading older messages when the user scrolls to the top of the
+  inverted `FlatList`.
+- **Tests / CI**: `backend/src/tests/e2e-smoke.ts` (59 checks) and
+  `backend/src/tests/rt2-smoke.ts` (17 checks) are the two always-on
+  smoke suites. `.github/workflows/ci.yml` runs four jobs per PR (backend
+  typecheck, frontend typecheck, backend e2e smoke, backend realtime
+  smoke) with a Postgres 17 service. Devin Review is also wired up on
+  every PR. There is no unit-test framework and no lint.
+
+### Recently merged work (latest PRs on top)
+
+These are the four PRs that landed since the demo-stack + Phase-0 pair
+(the history before that is preserved further down in this file):
+
+- **PR #4** — `plans: auto-clear inline sendMessage error on connectivity recovery`.
+  Subscribe to `connectivityStore` inside the existing one-time IIFE in
+  `ConnectivityBanner.tsx` and call `plansStore.clearOpError('sendMessage')`
+  on `online: false → true` or `wsStatus: 'reconnecting' → 'connected'`.
+  Single-file additive fix. Scope deliberately narrow (sendMessage only).
+- **PR #3** — `Beta Hardening Sprint #1: per-op errors, offline/reconnect UX, pagination`.
+  Replaced the single `plansStore.error` with `operationErrors: Record<PlanOp, string>`
+  (15 ops). Introduced `connectivityStore` + `ConnectivityBanner` +
+  offline short-circuit in `api/client.ts`. Wired Home feed
+  infinite-scroll and Plan chat load-older.
+- **PR #2** — `Friends + Notifications hardening: friend_accepted + typed NOTIFICATION_TYPES`.
+  Added `friend_accepted` notification type end-to-end (backend insert on
+  `PATCH /users/friends/:id?action=accept`, frontend
+  `NotificationType` + rendering). Introduced typed
+  `NOTIFICATION_TYPES` const as the single source of truth; the enum
+  migration in `backend/src/db/migrate.ts` is now derived from it.
+- **PR #1** — `Reality alignment: docs + OpenAPI + frontend types sync`.
+  Brought `notification_type` enum to 11 across 5 sources, documented
+  plan-share endpoints (`GET /plans/by-token/:token`, `POST
+  /plans/by-token/:token/join`, `PATCH /users/friends/:id`,
+  `GET /users/search`) in OpenAPI + backend-contract + screen mapping,
+  and fixed OTP drift (`OTP_MOCK` → `OTP_CODE`, `{"ok":true}` → `{}`) in
+  docs.
+
+### Known limitations (carry-over into next owner's session)
+
+- **No real SMS OTP** — `OTP_CODE=1111` is the only accepted code. A
+  production SMS integration (P0b) is explicitly deferred.
+- **No push notifications** — in-app + WS only. Meaningful only after an
+  EAS dev client ships (P6/P7).
+- **Native offline detection is limited** — the browser `online/offline`
+  listeners are web-only; on native, only the WS reconnect status + the
+  "recent network error" signal fire `ConnectivityBanner`. NetInfo-based
+  native flip is intentionally out of scope for the hardening sprint.
+- **Content supply is seed-only** — events and venues come from
+  `backend/src/db/seed.ts`. There is no user-facing creation form, no
+  admin tool, and no feed pipeline. This is the largest remaining gap
+  for closed-beta readiness.
+- **No venue self-serve** — venues are also seed-only. Admin platform
+  is out of scope; the next task (see below) assumes an internal
+  workflow, not a public portal.
+- **Map mode is not a priority** — location is text + coordinates only;
+  no map view.
+- **Monetization is not started and must not be.**
+- **CI for fork/bot PRs may require manual approval** in the "Approve and
+  run workflows" flow on GitHub. Devin Review usually runs regardless;
+  the 4 GitHub Actions jobs sometimes don't spawn until approved.
+- **Home feed pagination is disabled when a category filter is active**
+  (documented compromise from the Beta Hardening sprint; category filter
+  is client-side over the paginated result set). Fine for 6 seeded
+  events, will need a small backend-side filter push when real events
+  land.
+- **Notification WS/REST shape mismatch** — WS payloads are snake_case
+  while REST is camelized by `api/client.ts`. Not a functional bug; not
+  worth fixing before Content Ops unless a new notification type
+  surfaces the issue.
+
+### Next recommended task: Content Ops / Real Events Pipeline v1
+
+The app is close to closed-beta readiness on product/core-loop, but the
+main blocker is no longer planning — it is **real events**. Tools and
+UX exist; the seed is 6 synthetic events; there is no way to get real
+concerts / standup / exhibitions into the feed without editing
+`seed.ts`.
+
+Scope for v1 (intentionally internal, not a self-serve product):
+
+- A small **internal workflow** to turn a source URL / calendar feed
+  into a published event: **source → verify → publish → update/cancel**.
+- Event shape extensions if needed (explicit `status`, `last_updated_at`,
+  `source_url`, cancellation reason), added through
+  `backend/src/db/migrate.ts` — NOT by editing `001_init.sql`.
+- A minimal operator surface (CLI script or admin-only endpoint — not a
+  new screen, not a venue portal) for the internal team to run the
+  workflow. Auth for this is a separate admin token or a flag on the
+  seed "Я" user; do not invent a role system yet.
+- Hooks for **update / cancel** propagation: `event_time_changed` and
+  `event_cancelled` notifications already exist as types — the pipeline
+  must emit them when it mutates an event.
+- No venue self-serve, no public admin panel, no map, no monetization.
+  This is strictly about feeding real data into the existing feed so
+  closed beta has something to plan around.
+
+Suggested first step for the next session: read the last three PR
+descriptions (`#2`, `#3`, `#4`) plus this checkpoint, then propose a
+concrete shape for Content Ops v1 before writing any code. User has
+said not to start content work inside the checkpoint PR itself.
+
+---
+
+## TL;DR (legacy — pre-checkpoint)
 
 - Roadmap through P3 (observability) + Phase-0 (docs alignment + CI) are
   all on master. P4+ is pending and unblocked by CI now existing.

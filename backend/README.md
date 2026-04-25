@@ -7,14 +7,19 @@
 
 ## Setup
 
+From the repo root:
+
 ```bash
-cd e:\FEST\V1\backend
+cd backend
 
-# Install (disk C full — use cache redirect)
-$env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
+# Install (Linux / macOS)
+npm install --legacy-peer-deps
 
-# Create database
-createdb plans
+# Install (Windows / PowerShell — disk C full on canonical dev box, redirect cache)
+# $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
+
+# Create database (docker; see docs/DEMO_SETUP.md for Windows native PG service)
+docker run -d --name fest-pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=plans postgres:17
 
 # Run migration
 npm run db:migrate
@@ -23,7 +28,7 @@ npm run db:migrate
 npm run db:seed
 
 # Copy env
-copy .env.example .env
+cp .env.example .env       # Windows: copy .env.example .env
 # Edit .env with your DATABASE_URL
 ```
 

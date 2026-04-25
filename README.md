@@ -58,19 +58,24 @@ reachable (cloudflared), and `EXPO_PUBLIC_API_BASE_URL` /
 
 ## Quick start — Windows (PowerShell)
 
-Disk C is assumed full on the canonical Windows dev box (see
-[`AGENTS.md`](./AGENTS.md)). All npm commands must redirect cache:
+On the canonical Windows dev box disk `C:` is full (see
+[`AGENTS.md`](./AGENTS.md)), so all npm commands must redirect cache to a
+volume that has space. Paths below use `.\backend` / `.\fest-app` relative
+to wherever you cloned the repo — substitute your own absolute path if
+needed.
 
 ```powershell
+# From the repo root
+
 # Backend
-cd E:\FEST\V1\backend
+cd .\backend
 $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
-E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\migrate.ts
-E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\seed.ts
-$env:PORT="3001"; E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\index.ts
+npx tsx src\db\migrate.ts
+npx tsx src\db\seed.ts
+$env:PORT="3001"; npx tsx src\index.ts
 
 # Frontend
-cd E:\FEST\V1\fest-app
+cd ..\fest-app
 $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 npx expo start --web
 ```

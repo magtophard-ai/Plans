@@ -1,10 +1,12 @@
 # FEST MVP — Current Status
 
-**Last updated**: 2026-04-23
+**Last updated**: 2026-04-25
 **Single source of truth**: this document for **what is shipped and how it runs today**.
-For the forward-looking roadmap, gotchas, and next-agent handoff, see
-[`docs/HANDOFF.md`](./HANDOFF.md). For a step-by-step runbook to stand the
-demo stack up for real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
+For a narrative of the most recent merges + next recommended task, see the
+Checkpoint section at the top of [`docs/HANDOFF.md`](./HANDOFF.md) (that
+file also carries the forward-looking roadmap, gotchas, and next-agent
+handoff). For a step-by-step runbook to stand the demo stack up for
+real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 
 ## TL;DR
 
@@ -46,6 +48,9 @@ demo stack up for real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.m
 | Onboarding | 3-slide flow before `AuthScreen`, persisted via AsyncStorage |
 | Empty states | Upgraded `EmptyState` + contextual copy across ~10 call sites |
 | Observability | Sentry (error reporting, both sides) + PostHog analytics (both sides) |
+| Per-operation errors | `plansStore.operationErrors` keyed by `PlanOp` (15 ops) — `create`, `sendMessage`, `vote`, `finalize`, etc. fail independently. Stale `sendMessage` error auto-clears on connectivity recovery (`online: false → true` or WS `reconnecting → connected`). |
+| Connectivity UX | Top `ConnectivityBanner` aggregates browser `online`, WS `wsStatus`, and recent network errors into red (offline) / amber (reconnecting) strips. `api/client.ts` short-circuits mutations with `code: 'OFFLINE'` when offline. |
+| Pagination | Home feed `onEndReached` + footer (disabled when a category filter is active, by design); PlanDetails chat loads older messages via `?before=` cursor with id-based dedup. |
 
 ## Realtime
 
@@ -90,7 +95,13 @@ Quick local (web) start:
 - `fest-app/src/fest-animations/**` intentionally excluded from the main
   frontend TypeScript gate (`fest-app/tsconfig.json`). Validate separately
   with `tsconfig.fest-animations.json` when needed.
-- `plansStore.error` is global — errors from different operations share one banner.
+- Home feed pagination is disabled when a category filter is active (the
+  backend paginates on the unfiltered result set; filtering happens
+  client-side). Documented compromise from the Beta Hardening sprint; fine
+  for MVP seed of 6 events.
+- Native online detection is limited to WS reconnect status + recent
+  network errors; the browser `online/offline` listeners are web-only.
+  NetInfo-based native flip is intentionally deferred.
 - Notification shape mismatch between WS and REST payloads (WS is
   snake_case, REST is camelized) — not a functional bug, documented for
   next hardening pass.

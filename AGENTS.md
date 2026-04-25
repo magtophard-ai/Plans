@@ -2,31 +2,42 @@
 
 ## Environment
 
-- **Disk C has 0 bytes free.** All npm commands must redirect cache:
+All commands are relative to the repo root (wherever you cloned it). On the
+canonical Windows dev box that is `E:\FEST\V1\`; on Linux/macOS it is
+whatever directory `git clone` landed the repo in. Use whichever path style
+matches your shell; the commands themselves stay the same.
+
+- **Disk C is assumed full on the canonical Windows dev box.** All npm commands
+  must redirect cache to a volume with space:
   ```
   $env:npm_config_cache="E:\npm-cache"; npm <command> --legacy-peer-deps
   ```
-  Missing either the cache redirect or `--legacy-peer-deps` will fail.
-
-- **Working directory** for all app commands: `e:\FEST\V1\fest-app`
-- **Backend** runs on port 3001: `$env:PORT="3001"; E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\index.ts`
-- **PostgreSQL 17** Windows service `postgresql-x64-17`, `psql` at `C:\Program Files\PostgreSQL\17\bin\`
+  On Linux/macOS the cache redirect is not needed; just `npm install --legacy-peer-deps`.
+  `--legacy-peer-deps` is required on both platforms because Expo SDK 54 has peer-dep conflicts.
+- **Backend** runs on port 3001 (`cd backend && npx tsx src/index.ts`, or `$env:PORT="3001"; npx tsx src\index.ts` on PowerShell).
+- **PostgreSQL 17**: Windows uses the native service `postgresql-x64-17` (`psql` at `C:\Program Files\PostgreSQL\17\bin\`). Linux/macOS use the `postgres:17` docker image — see `docs/DEMO_SETUP.md`.
 
 ## Commands
 
+All `workdir:` entries are relative to the repo root. On Windows prefix `npm`
+commands with `$env:npm_config_cache="E:\npm-cache";` as described in
+**Environment**; on Linux/macOS run them plain.
+
 | Action | Command |
 |--------|---------|
-| Install (frontend) | `$env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps` |
-| Install (backend) | `$env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps` (workdir: `E:\FEST\V1\backend`) |
-| DB migrate | `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\migrate.ts` (workdir: `E:\FEST\V1\backend`) |
-| DB seed | `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\db\seed.ts` (workdir: `E:\FEST\V1\backend`) |
-| Dev (web) | `npx expo start --web` → http://localhost:8081 |
-| Dev (mobile) | `npx expo start` |
-| Type check (frontend main app) | `npx tsc --noEmit` |
-| Type check (fest-animations, optional) | `npx tsc --noEmit -p tsconfig.fest-animations.json` |
-| Type check (backend) | `npx tsc --noEmit` (workdir: `E:\FEST\V1\backend`) |
-| Smoke build | `npx expo export --platform web` |
-| Start backend | `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\index.ts` (workdir: `E:\FEST\V1\backend`) |
+| Install (frontend) | `npm install --legacy-peer-deps` (workdir: `fest-app/`) |
+| Install (backend) | `npm install --legacy-peer-deps` (workdir: `backend/`) |
+| DB migrate | `npm run db:migrate` (workdir: `backend/`) |
+| DB seed | `npm run db:seed` (workdir: `backend/`) |
+| Dev (web) | `npx expo start --web` → http://localhost:8081 (workdir: `fest-app/`) |
+| Dev (mobile) | `npx expo start` (workdir: `fest-app/`) |
+| Type check (frontend main app) | `npx tsc --noEmit` (workdir: `fest-app/`) |
+| Type check (fest-animations, optional) | `npx tsc --noEmit -p tsconfig.fest-animations.json` (workdir: `fest-app/`) |
+| Type check (backend) | `npx tsc --noEmit` (workdir: `backend/`) |
+| Smoke build | `npx expo export --platform web` (workdir: `fest-app/`) |
+| Start backend | `npm run start` (workdir: `backend/`) |
+| REST smoke | `npx tsx src/tests/e2e-smoke.ts` (workdir: `backend/`; backend must be running) |
+| Realtime smoke | `npx tsx src/tests/rt2-smoke.ts` (workdir: `backend/`; backend must be running) |
 
 No `npm test` script exists. No linter is configured — use `tsc --noEmit` as the verification gate. Always run it after code changes.
 

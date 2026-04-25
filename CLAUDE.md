@@ -12,10 +12,16 @@
 - Expo Go (for mobile testing)
 
 ## Installation
+
+From the repo root:
+
 ```bash
-cd e:\FEST\V1\fest-app
+cd fest-app
 npm install --legacy-peer-deps
 ```
+
+On Windows, prefix with `$env:npm_config_cache="E:\npm-cache";` if disk C is
+full on the dev box (see `AGENTS.md`).
 
 ## Development
 ```bash
