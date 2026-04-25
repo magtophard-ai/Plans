@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
 import { useConnectivityStore } from '../stores/connectivityStore';
+import { usePlansStore } from '../stores/plansStore';
 import { setOnStatusChange } from '../api/ws';
 
 // Single source of truth for the strip we render at the top of the app
@@ -38,6 +39,27 @@ const installListeners = (() => {
       w.addEventListener?.('online', onOnline);
       w.addEventListener?.('offline', onOffline);
     }
+
+    // Auto-clear the inline `sendMessage` op-error once the underlying
+    // connectivity issue recovers. Without this, the strip inside the
+    // chat footer ("Нет соединения. Проверьте интернет.") lingers until
+    // the user retries or unmounts PlanDetails, which is confusing once
+    // the top banner has already cleared itself.
+    //
+    // We react to two concrete recovery transitions:
+    //   - browser online: false → true   (regained network)
+    //   - WS: 'reconnecting' → 'connected' (backend/WS healed)
+    // Both are the exact inverse of the conditions that surface the
+    // send-time error, so clearing is never premature.
+    let prev = useConnectivityStore.getState();
+    useConnectivityStore.subscribe((state) => {
+      const backOnline = prev.online === false && state.online === true;
+      const wsHealed = prev.wsStatus === 'reconnecting' && state.wsStatus === 'connected';
+      if (backOnline || wsHealed) {
+        usePlansStore.getState().clearOpError('sendMessage');
+      }
+      prev = state;
+    });
   };
 })();
 
