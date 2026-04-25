@@ -64,6 +64,7 @@ CREATE TYPE notification_type AS ENUM (
   'event_time_changed', 'event_cancelled',
   'plan_reminder', 'plan_completed',
   'friend_request',
+  'friend_accepted',
   'plan_join_via_link'
 );
 

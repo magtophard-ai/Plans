@@ -186,6 +186,16 @@ export async function userRoutes(app: FastifyInstance) {
         `UPDATE friendships SET status = 'accepted' WHERE id = $1 RETURNING *`,
         [existing.id]
       )).rows[0];
+      try {
+        await insertNotification(existing.requester_id, 'friend_accepted', {
+          friendship_id: updated.id,
+          accepter_id: userId,
+          accepter_name: me?.name,
+          accepter_username: me?.username,
+        });
+      } catch (err) {
+        request.log.error({ err }, 'failed to insert friend_accepted notification (auto-accept)');
+      }
       return { friendship: updated };
     }
 
@@ -235,6 +245,20 @@ export async function userRoutes(app: FastifyInstance) {
       `UPDATE friendships SET status = 'accepted' WHERE id = $1 RETURNING *`,
       [existing.id]
     )).rows[0];
+
+    try {
+      const me = (await query('SELECT name, username FROM users WHERE id = $1', [userId])).rows[0];
+      await insertNotification(existing.requester_id, 'friend_accepted', {
+        friendship_id: updated.id,
+        accepter_id: userId,
+        accepter_name: me?.name,
+        accepter_username: me?.username,
+      });
+    } catch (err) {
+      // Notification insertion must not roll back the accept.
+      request.log.error({ err }, 'failed to insert friend_accepted notification');
+    }
+
     return { friendship: updated };
   });
 

@@ -242,7 +242,7 @@ UNIQUE(type, target_id, invitee_id). Index on invitee_id + status (pending list)
 |---|---|---|
 | id | uuid PK | |
 | user_id | uuid FK→users | |
-| type | enum(plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed) | |
+| type | enum(plan_invite, group_invite, proposal_created, plan_finalized, plan_unfinalized, event_time_changed, event_cancelled, plan_reminder, plan_completed, friend_request, friend_accepted, plan_join_via_link) | |
 | payload | jsonb | Structured per type |
 | read | boolean DEFAULT false | |
 | created_at | timestamptz | |
@@ -285,7 +285,7 @@ CREATE TYPE proposal_status AS ENUM ('active','finalized','superseded');
 CREATE TYPE group_role AS ENUM ('member');
 CREATE TYPE invitation_type AS ENUM ('plan','group');
 CREATE TYPE invitation_status AS ENUM ('pending','accepted','declined');
-CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed','friend_request','plan_join_via_link');
+CREATE TYPE notification_type AS ENUM ('plan_invite','group_invite','proposal_created','plan_finalized','plan_unfinalized','event_time_changed','event_cancelled','plan_reminder','plan_completed','friend_request','friend_accepted','plan_join_via_link');
 CREATE TYPE message_type AS ENUM ('user','system','proposal_card');
 CREATE TYPE message_context AS ENUM ('plan');
 
@@ -509,14 +509,18 @@ GET /users/friends
 
 POST /users/friends/:id
   response: 201 { friendship: Friendship }
-  side-effects: inserts a ‘pending’ friendship (or auto-accepts if the other
-                user had already sent a pending request); creates a
-                ‘friend_request’ notification for the addressee.
+  side-effects: inserts a ‘pending’ friendship and creates a ‘friend_request’
+                notification for the addressee, OR — if the other user had
+                already sent a pending request — auto-accepts and creates a
+                ‘friend_accepted’ notification for that original requester.
 
 PATCH /users/friends/:id
   body: { action: 'accept' | 'decline' }
   response: 200 { friendship: Friendship } on accept, 204 on decline
   auth: only the addressee of a pending request may call this.
+  side-effects (accept only): creates a ‘friend_accepted’ notification for
+                the original requester with payload
+                { friendship_id, accepter_id, accepter_name, accepter_username }.
 
 DELETE /users/friends/:id
   response: 204
