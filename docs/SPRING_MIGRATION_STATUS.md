@@ -22,7 +22,8 @@ Completed Spring parity checkpoints:
     writes and related notification behavior.
 - Plans + invitations + notifications:
   - Core plan list/create/detail/lifecycle endpoints, participant list/update/
-    remove/invite, invitation list/accept/decline, notification list/read/read-all.
+    remove/invite, invitation list/accept/decline, notification
+    list/read/read-all.
 - Share-link endpoints:
   - `GET /api/plans/by-token/:token`.
   - `POST /api/plans/by-token/:token/join`.
@@ -81,9 +82,9 @@ checkpoints:
 
 ## GitHub Actions / Checks status
 
-GitHub Actions have not provided a reliable Spring CI signal for these Spring
-checkpoints. If the GitHub Checks page shows `0` checks / `0` workflow runs, do
-not treat that as GitHub CI green.
+GitHub Actions have not provided a reliable Spring CI signal for these
+Spring checkpoints. If the GitHub Checks page shows `0` checks / `0` workflow
+runs, do not treat that as GitHub CI green.
 
 The current workflow configuration is still Fastify/frontend oriented and does
 not run `backend-spring` Gradle tests as the Spring parity gate. Until Spring CI

@@ -32,9 +32,11 @@ Spring parity and switchover are complete.
 Future slices should use this structure:
 
 - `com.plans.backend.api` — REST/WebSocket API layer.
-- `com.plans.backend.api.error` — global exception handling and error envelopes.
+- `com.plans.backend.api.error` — global exception handling and error
+  envelopes.
 - `com.plans.backend.api.health` — health endpoint.
-- `com.plans.backend.api.realtime` — future raw JSON WebSocket implementation.
+- `com.plans.backend.api.realtime` — future raw JSON WebSocket
+  implementation.
 - `com.plans.backend.config` — Spring configuration.
 - `com.plans.backend.domain` — domain types.
 - `com.plans.backend.service` — business services.
@@ -76,8 +78,8 @@ run it against production.
 
 Current Flyway migrations are intended for a fresh Spring-managed database.
 Connecting this Spring app to an existing Fastify-managed database requires a
-separate baseline-on-migrate/manual baseline plan before enabling Flyway against
-that database.
+separate baseline-on-migrate/manual baseline plan before enabling Flyway
+against that database.
 
 ## Local smoke outline
 
