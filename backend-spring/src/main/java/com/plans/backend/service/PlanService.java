@@ -434,6 +434,191 @@ public class PlanService {
         }
     }
 
+
+    @Transactional
+    public Map<String, Object> finalizePlan(UUID userId, UUID planId, Map<String, Object> body) {
+        Map<String, Object> plan = basePlanRequired(planId);
+        if (!userId.toString().equals(plan.get("creator_id").toString())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Only creator can finalize");
+        }
+        if (!"active".equals(plan.get("lifecycle_state").toString())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATE", "Can only finalize active plans");
+        }
+
+        UUID placeProposalId = optionalUuid(body.get("place_proposal_id"));
+        UUID timeProposalId = optionalUuid(body.get("time_proposal_id"));
+        if (placeProposalId == null && timeProposalId == null &&
+            (!"confirmed".equals(plan.get("place_status").toString()) ||
+                !"confirmed".equals(plan.get("time_status").toString()))) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_STATE",
+                "Plan must have confirmed place and time before finalizing"
+            );
+        }
+
+        Map<String, Object> placeProposal = null;
+        Map<String, Object> timeProposal = null;
+        if (placeProposalId != null) {
+            placeProposal = proposalByTypeRequired(planId, placeProposalId, "place", "Place proposal not found");
+        }
+        if (timeProposalId != null) {
+            timeProposal = proposalByTypeRequired(planId, timeProposalId, "time", "Time proposal not found");
+        }
+
+        if (placeProposal != null) {
+            jdbc.sql(
+                    """
+                    UPDATE plans
+                    SET confirmed_place_text = :valueText,
+                        confirmed_place_lat = :valueLat,
+                        confirmed_place_lng = :valueLng,
+                        place_status = 'confirmed',
+                        updated_at = now()
+                    WHERE id = :planId
+                    """
+                )
+                .param("valueText", placeProposal.get("value_text"))
+                .param("valueLat", placeProposal.get("value_lat"))
+                .param("valueLng", placeProposal.get("value_lng"))
+                .param("planId", planId)
+                .update();
+            finalizeProposalSet(planId, placeProposalId, "place");
+        }
+        if (timeProposal != null) {
+            String timeValue = finalizedTimeValue(timeProposal);
+            jdbc.sql(
+                    """
+                    UPDATE plans
+                    SET confirmed_time = CAST(:confirmedTime AS timestamptz),
+                        time_status = 'confirmed',
+                        updated_at = now()
+                    WHERE id = :planId
+                    """
+                )
+                .param("confirmedTime", timeValue)
+                .param("planId", planId)
+                .update();
+            finalizeProposalSet(planId, timeProposalId, "time");
+        }
+
+        jdbc.sql("UPDATE plans SET lifecycle_state = 'finalized', updated_at = now() WHERE id = :planId")
+            .param("planId", planId)
+            .update();
+        insertPlanLifecycleNotifications(planId, "plan_finalized", plan.get("title").toString());
+        insertSystemMessage(planId, userId, "План подтверждён");
+        return Map.of("plan", getPlanFull(planId));
+    }
+
+    @Transactional
+    public Map<String, Object> unfinalize(UUID userId, UUID planId) {
+        Map<String, Object> plan = basePlanRequired(planId);
+        if (!userId.toString().equals(plan.get("creator_id").toString())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Only creator can unfinalize");
+        }
+        if (!"finalized".equals(plan.get("lifecycle_state").toString())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATE", "Can only unfinalize finalized plans");
+        }
+
+        jdbc.sql(
+                """
+                UPDATE plan_proposals
+                SET status = 'active'
+                WHERE plan_id = :planId AND (status = 'finalized' OR status = 'superseded')
+                """
+            )
+            .param("planId", planId)
+            .update();
+
+        boolean hasPlaceProposals = hasProposalsOfType(planId, "place");
+        boolean hasTimeProposals = hasProposalsOfType(planId, "time");
+        jdbc.sql("UPDATE plans SET lifecycle_state = 'active', updated_at = now() WHERE id = :planId")
+            .param("planId", planId)
+            .update();
+        if (hasPlaceProposals) {
+            jdbc.sql("UPDATE plans SET place_status = 'proposed', updated_at = now() WHERE id = :planId")
+                .param("planId", planId)
+                .update();
+        }
+        if (hasTimeProposals) {
+            jdbc.sql("UPDATE plans SET time_status = 'proposed', updated_at = now() WHERE id = :planId")
+                .param("planId", planId)
+                .update();
+        }
+        insertPlanLifecycleNotifications(planId, "plan_unfinalized", plan.get("title").toString());
+        insertSystemMessage(planId, userId, "Подтверждение отменено");
+        return Map.of("plan", getPlanFull(planId));
+    }
+
+    @Transactional
+    public Map<String, Object> repeat(UUID userId, UUID planId) {
+        Map<String, Object> plan = basePlanRequired(planId);
+        if (!"completed".equals(plan.get("lifecycle_state").toString())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATE", "Can only repeat completed plans");
+        }
+        if (!userId.toString().equals(plan.get("creator_id").toString())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Only creator can repeat");
+        }
+
+        List<UUID> otherParticipants = jdbc.sql(
+                "SELECT user_id FROM plan_participants WHERE plan_id = :planId AND user_id != :userId"
+            )
+            .param("planId", planId)
+            .param("userId", userId)
+            .query(UUID.class)
+            .list();
+        if (1 + otherParticipants.size() > 15) {
+            throw new ApiException(HttpStatus.CONFLICT, "PLAN_FULL", "Max 15 participants");
+        }
+
+        Map<String, Object> newPlan = jdbc.sql(
+                """
+                INSERT INTO plans (creator_id, title, activity_type, place_status, time_status, pre_meet_enabled, share_token)
+                VALUES (:creatorId, :title, CAST(:activityType AS activity_type), 'undecided', 'undecided', false, :shareToken)
+                RETURNING *
+                """
+            )
+            .param("creatorId", userId)
+            .param("title", plan.get("title"))
+            .param("activityType", plan.get("activity_type").toString())
+            .param("shareToken", newShareToken())
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .map(SqlRows::normalize)
+            .orElseThrow();
+        UUID newPlanId = UUID.fromString(newPlan.get("id").toString());
+
+        jdbc.sql("INSERT INTO plan_participants (plan_id, user_id, status) VALUES (:planId, :userId, 'going')")
+            .param("planId", newPlanId)
+            .param("userId", userId)
+            .update();
+        String inviterName = jdbc.sql("SELECT name FROM users WHERE id = :userId")
+            .param("userId", userId)
+            .query(String.class)
+            .optional()
+            .orElse(null);
+        for (UUID participantId : otherParticipants) {
+            jdbc.sql("INSERT INTO plan_participants (plan_id, user_id, status) VALUES (:planId, :userId, 'invited')")
+                .param("planId", newPlanId)
+                .param("userId", participantId)
+                .update();
+            jdbc.sql(
+                    """
+                    INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status)
+                    VALUES ('plan', :planId, :inviterId, :inviteeId, 'pending')
+                    """
+                )
+                .param("planId", newPlanId)
+                .param("inviterId", userId)
+                .param("inviteeId", participantId)
+                .update();
+            insertNotification(participantId, "plan_invite", planInvitePayload(newPlanId, inviterName));
+        }
+        return Map.of("plan", getPlanFull(newPlanId));
+    }
+
     @Transactional
     public Map<String, Object> cancel(UUID userId, UUID planId) {
         Map<String, Object> plan = basePlanRequired(planId);
@@ -601,6 +786,13 @@ public class PlanService {
         return payload;
     }
 
+    private Map<String, Object> planLifecyclePayload(UUID planId, String planTitle) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("plan_id", planId.toString());
+        payload.put("plan_title", planTitle);
+        return payload;
+    }
+
     Map<String, Object> getPlanFullRequired(UUID planId) {
         Map<String, Object> plan = getPlanFull(planId);
         if (plan == null) {
@@ -735,6 +927,97 @@ public class PlanService {
             .findFirst()
             .map(SqlRows::normalize)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Proposal not found"));
+    }
+
+    private Map<String, Object> proposalByTypeRequired(UUID planId, UUID proposalId, String type, String message) {
+        return jdbc.sql(
+                """
+                SELECT * FROM plan_proposals
+                WHERE id = :proposalId AND plan_id = :planId AND type = CAST(:type AS proposal_type)
+                """
+            )
+            .param("proposalId", proposalId)
+            .param("planId", planId)
+            .param("type", type)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .map(SqlRows::normalize)
+            .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", message));
+    }
+
+    private void finalizeProposalSet(UUID planId, UUID proposalId, String type) {
+        jdbc.sql("UPDATE plan_proposals SET status = 'finalized' WHERE id = :proposalId")
+            .param("proposalId", proposalId)
+            .update();
+        jdbc.sql(
+                """
+                UPDATE plan_proposals
+                SET status = 'superseded'
+                WHERE plan_id = :planId
+                  AND type = CAST(:type AS proposal_type)
+                  AND id != :proposalId
+                  AND status = 'active'
+                """
+            )
+            .param("planId", planId)
+            .param("type", type)
+            .param("proposalId", proposalId)
+            .update();
+    }
+
+    private String finalizedTimeValue(Map<String, Object> proposal) {
+        Object rawTime = proposal.get("value_datetime") == null ? proposal.get("value_text") : proposal.get("value_datetime");
+        if (rawTime instanceof OffsetDateTime offsetDateTime) {
+            return offsetDateTime.toString();
+        }
+        String value = rawTime == null ? null : rawTime.toString();
+        if (value == null || value.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Time proposal not found");
+        }
+        try {
+            return OffsetDateTime.parse(value).toString();
+        } catch (RuntimeException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Time proposal not found");
+        }
+    }
+
+    private boolean hasProposalsOfType(UUID planId, String type) {
+        return jdbc.sql("SELECT 1 FROM plan_proposals WHERE plan_id = :planId AND type = CAST(:type AS proposal_type) LIMIT 1")
+            .param("planId", planId)
+            .param("type", type)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .isPresent();
+    }
+
+    private void insertPlanLifecycleNotifications(UUID planId, String type, String title) {
+        for (UUID participantId : participantIds(planId)) {
+            insertNotification(participantId, type, planLifecyclePayload(planId, title));
+        }
+    }
+
+    private List<UUID> participantIds(UUID planId) {
+        return jdbc.sql("SELECT user_id FROM plan_participants WHERE plan_id = :planId")
+            .param("planId", planId)
+            .query(UUID.class)
+            .list();
+    }
+
+    private void insertSystemMessage(UUID planId, UUID senderId, String text) {
+        jdbc.sql(
+                """
+                INSERT INTO messages (context_type, context_id, sender_id, text, type)
+                VALUES ('plan', :planId, :senderId, :text, 'system')
+                """
+            )
+            .param("planId", planId)
+            .param("senderId", senderId)
+            .param("text", text)
+            .update();
     }
 
     private Map<String, Object> findVote(UUID proposalId, UUID userId) {

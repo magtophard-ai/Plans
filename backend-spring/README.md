@@ -20,13 +20,16 @@ Fastify remains canonical until full Spring parity and switchover are complete.
   - `POST /api/plans/:planId/proposals`
   - `POST /api/plans/:planId/proposals/:proposalId/vote`
   - `DELETE /api/plans/:planId/proposals/:proposalId/vote`
+- Finalize/unfinalize + repeat:
+  - `POST /api/plans/:planId/finalize`
+  - `POST /api/plans/:planId/unfinalize`
+  - `POST /api/plans/:planId/repeat`
 - Share-link endpoints:
   - `GET /api/plans/by-token/:token`
   - `POST /api/plans/by-token/:token/join`
 
 ## Not yet covered
 
-- Finalize/unfinalize + repeat.
 - Plan messages.
 - Realtime WebSocket behavior.
 - Content ops.

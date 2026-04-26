@@ -101,6 +101,27 @@ public class PlanController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{id}/finalize")
+    Map<String, Object> finalizePlan(
+        AuthenticatedUser authenticatedUser,
+        @PathVariable UUID id,
+        @RequestBody(required = false) Map<String, Object> body
+    ) {
+        return planService.finalizePlan(authenticatedUser.id(), id, body == null ? Map.of() : body);
+    }
+
+    @PostMapping("/{id}/unfinalize")
+    Map<String, Object> unfinalize(AuthenticatedUser authenticatedUser, @PathVariable UUID id) {
+        return planService.unfinalize(authenticatedUser.id(), id);
+    }
+
+    @PostMapping("/{id}/repeat")
+    ResponseEntity<Map<String, Object>> repeat(AuthenticatedUser authenticatedUser, @PathVariable UUID id) {
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .body(planService.repeat(authenticatedUser.id(), id));
+    }
+
     @PostMapping("/{id}/cancel")
     Map<String, Object> cancel(AuthenticatedUser authenticatedUser, @PathVariable UUID id) {
         return planService.cancel(authenticatedUser.id(), id);
