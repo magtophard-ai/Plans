@@ -159,6 +159,111 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void inviteParticipantCreatesParticipantInvitationAndNotification() throws Exception {
+        String creatorToken = login("+79990000000");
+        String inviteeId = userId("+79991111111");
+        String response = mockMvc.perform(post("/api/plans")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Invite later\",\"activity_type\":\"coffee\"}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String planId = read(response, "/plan/id").asText();
+
+        mockMvc.perform(post("/api/plans/" + planId + "/participants")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user_id\":\"" + inviteeId + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.participant.plan_id").value(planId))
+            .andExpect(jsonPath("$.participant.user_id").value(inviteeId))
+            .andExpect(jsonPath("$.participant.status").value("invited"))
+            .andExpect(jsonPath("$.participant.user.username").value("masha"));
+
+        expectCount(
+            "SELECT COUNT(*) FROM invitations WHERE type = 'plan' AND target_id = ?::uuid AND invitee_id = ?::uuid AND status = 'pending'",
+            planId,
+            inviteeId,
+            1
+        );
+        expectCount(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ?::uuid AND type = 'plan_invite' AND payload->>'plan_id' = ?",
+            inviteeId,
+            planId,
+            1
+        );
+        String inviterName = jdbc.queryForObject(
+            "SELECT payload->>'inviter_name' FROM notifications WHERE user_id = ?::uuid AND payload->>'plan_id' = ? ORDER BY created_at DESC LIMIT 1",
+            String.class,
+            inviteeId,
+            planId
+        );
+        org.assertj.core.api.Assertions.assertThat(inviterName).isEqualTo("Я");
+    }
+
+    @Test
+    void inviteParticipantRejectsNonCreatorInactiveAlreadyParticipantMissingUserAndFullPlan() throws Exception {
+        String creatorToken = login("+79990000000");
+        String nonCreatorToken = login("+79991111111");
+        String dimaId = userId("+79992222222");
+        String lenaId = userId("+79993333333");
+        String katyaId = userId("+79995555555");
+
+        mockMvc.perform(post("/api/plans/71111111-1111-4111-8111-111111111111/participants")
+                .header("Authorization", bearer(nonCreatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user_id\":\"" + katyaId + "\"}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+            .andExpect(jsonPath("$.message").value("Only creator can invite"));
+
+        mockMvc.perform(post("/api/plans/73333333-3333-4333-8333-333333333333/participants")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user_id\":\"" + dimaId + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+            .andExpect(jsonPath("$.message").value("Can only invite in active plans"));
+
+        mockMvc.perform(post("/api/plans/71111111-1111-4111-8111-111111111111/participants")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user_id\":\"" + dimaId + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ALREADY_PARTICIPANT"))
+            .andExpect(jsonPath("$.message").value("User is already a participant"));
+
+        mockMvc.perform(post("/api/plans/71111111-1111-4111-8111-111111111111/participants")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.message").value("user_id required"));
+
+        String fullPlan = mockMvc.perform(post("/api/plans")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Full invite plan\",\"participant_ids\":" + participantIds(14, 100) + "}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String fullPlanId = read(fullPlan, "/plan/id").asText();
+        String extraUserId = userIdAfterLogin("+79879999999");
+
+        mockMvc.perform(post("/api/plans/" + fullPlanId + "/participants")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user_id\":\"" + extraUserId + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("PLAN_FULL"))
+            .andExpect(jsonPath("$.message").value("Plan has max 15 participants"));
+    }
+
+    @Test
     void nonCreatorRemoveIsForbidden() throws Exception {
         String nonCreatorToken = login("+79991111111");
         String friendId = userId("+79992222222");
@@ -324,21 +429,34 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     private String manyParticipantIds() throws Exception {
+        return participantIds(15, 0);
+    }
+
+    private String participantIds(int count, int offset) throws Exception {
         StringBuilder ids = new StringBuilder("[");
-        for (int index = 0; index < 15; index++) {
-            String phone = "+7987%07d".formatted(index);
-            login(phone);
+        for (int index = 0; index < count; index++) {
+            String phone = "+7987%07d".formatted(index + offset);
             if (index > 0) {
                 ids.append(',');
             }
-            ids.append('"').append(userId(phone)).append('"');
+            ids.append('"').append(userIdAfterLogin(phone)).append('"');
         }
         ids.append(']');
         return ids.toString();
     }
 
+    private String userIdAfterLogin(String phone) throws Exception {
+        login(phone);
+        return userId(phone);
+    }
+
     private void expectCount(String sql, String id, int expected) {
         Integer count = jdbc.queryForObject(sql, Integer.class, id);
+        org.assertj.core.api.Assertions.assertThat(count).isEqualTo(expected);
+    }
+
+    private void expectCount(String sql, String firstId, String secondId, int expected) {
+        Integer count = jdbc.queryForObject(sql, Integer.class, firstId, secondId);
         org.assertj.core.api.Assertions.assertThat(count).isEqualTo(expected);
     }
 

@@ -179,7 +179,7 @@ public class PlanService {
                 .param("inviterId", userId)
                 .param("inviteeId", participantId)
                 .update();
-            insertNotification(participantId, "plan_invite", Map.of("plan_id", planId.toString(), "inviter_name", inviterName));
+            insertNotification(participantId, "plan_invite", planInvitePayload(planId, inviterName));
         }
         return Map.of("plan", getPlanFull(planId));
     }
@@ -233,6 +233,75 @@ public class PlanService {
     }
 
     @Transactional
+    public Map<String, Object> inviteParticipant(UUID userId, UUID planId, Map<String, Object> body) {
+        UUID inviteeId = optionalUuid(body.get("user_id"));
+        if (inviteeId == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "user_id required");
+        }
+
+        Map<String, Object> plan = basePlanRequired(planId);
+        if (!userId.toString().equals(plan.get("creator_id").toString())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Only creator can invite");
+        }
+        if (!"active".equals(plan.get("lifecycle_state").toString())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATE", "Can only invite in active plans");
+        }
+
+        boolean existing = jdbc.sql(
+                "SELECT 1 FROM plan_participants WHERE plan_id = :planId AND user_id = :userId"
+            )
+            .param("planId", planId)
+            .param("userId", inviteeId)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .isPresent();
+        if (existing) {
+            throw new ApiException(HttpStatus.CONFLICT, "ALREADY_PARTICIPANT", "User is already a participant");
+        }
+
+        Number count = jdbc.sql("SELECT COUNT(*) FROM plan_participants WHERE plan_id = :planId")
+            .param("planId", planId)
+            .query(Number.class)
+            .single();
+        if (count.intValue() >= 15) {
+            throw new ApiException(HttpStatus.CONFLICT, "PLAN_FULL", "Plan has max 15 participants");
+        }
+
+        jdbc.sql(
+                """
+                INSERT INTO plan_participants (plan_id, user_id, status)
+                VALUES (:planId, :userId, 'invited')
+                """
+            )
+            .param("planId", planId)
+            .param("userId", inviteeId)
+            .update();
+        jdbc.sql(
+                """
+                INSERT INTO invitations (type, target_id, inviter_id, invitee_id, status)
+                VALUES ('plan', :planId, :inviterId, :inviteeId, 'pending')
+                """
+            )
+            .param("planId", planId)
+            .param("inviterId", userId)
+            .param("inviteeId", inviteeId)
+            .update();
+        String inviterName = jdbc.sql("SELECT name FROM users WHERE id = :userId")
+            .param("userId", userId)
+            .query(String.class)
+            .optional()
+            .orElse(null);
+        insertNotification(inviteeId, "plan_invite", planInvitePayload(planId, inviterName));
+
+        Map<String, Object> participant = participantRows(planId, inviteeId).stream()
+            .findFirst()
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Participant not found"));
+        return Map.of("participant", participant);
+    }
+
+    @Transactional
     public Map<String, Object> updateParticipant(UUID userId, UUID planId, UUID participantId, Map<String, Object> body) {
         Map<String, Object> plan = basePlanRequired(planId);
         if (!participantId.equals(userId) && !userId.toString().equals(plan.get("creator_id").toString())) {
@@ -269,6 +338,13 @@ public class PlanService {
             .param("planId", planId)
             .param("userId", participantId)
             .update();
+    }
+
+    private Map<String, Object> planInvitePayload(UUID planId, String inviterName) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("plan_id", planId.toString());
+        payload.put("inviter_name", inviterName);
+        return payload;
     }
 
     Map<String, Object> getPlanFullRequired(UUID planId) {

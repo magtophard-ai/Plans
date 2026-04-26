@@ -66,6 +66,15 @@ public class PlanController {
         return planService.participants(planId);
     }
 
+    @PostMapping("/{planId}/participants")
+    Map<String, Object> inviteParticipant(
+        AuthenticatedUser authenticatedUser,
+        @PathVariable UUID planId,
+        @RequestBody(required = false) Map<String, Object> body
+    ) {
+        return planService.inviteParticipant(authenticatedUser.id(), planId, body == null ? Map.of() : body);
+    }
+
     @PatchMapping("/{planId}/participants/{uid}")
     Map<String, Object> updateParticipant(
         AuthenticatedUser authenticatedUser,
