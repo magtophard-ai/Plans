@@ -49,6 +49,17 @@ cd backend-spring
 ./gradlew test
 ```
 
+## Local tests
+
+Run the Spring test suite from the repo root:
+
+```bash
+cd backend-spring
+./gradlew test
+```
+
+The integration tests use Testcontainers and require local Docker access.
+
 Local run on Spring `:3001`:
 
 ```bash
