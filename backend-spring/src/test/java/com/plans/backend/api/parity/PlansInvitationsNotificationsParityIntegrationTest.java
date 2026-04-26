@@ -688,6 +688,267 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void creatorCanFinalizeAndUnfinalizeWithProposalStatusAndSideEffects() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Lifecycle parity", participantId);
+        String selectedPlaceId = createProposal(creatorToken, planId, "place", "Кафе финал");
+        String otherPlaceId = createProposal(creatorToken, planId, "place", "Бар запасной");
+        String selectedTimeId = createProposalWithFields(
+            creatorToken,
+            planId,
+            "time",
+            "2026-06-01T19:00:00+03:00",
+            "\"value_datetime\":\"2026-06-01T19:00:00+03:00\""
+        );
+        String otherTimeId = createProposalWithFields(
+            creatorToken,
+            planId,
+            "time",
+            "2026-06-02T20:00:00+03:00",
+            "\"value_datetime\":\"2026-06-02T20:00:00+03:00\""
+        );
+
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + selectedPlaceId + "\",\"time_proposal_id\":\"" + selectedTimeId + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.plan.id").value(planId))
+            .andExpect(jsonPath("$.plan.lifecycle_state").value("finalized"))
+            .andExpect(jsonPath("$.plan.place_status").value("confirmed"))
+            .andExpect(jsonPath("$.plan.time_status").value("confirmed"))
+            .andExpect(jsonPath("$.plan.confirmed_place_text").value("Кафе финал"))
+            .andExpect(jsonPath("$.plan.confirmed_time", notNullValue()));
+
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE id = ?::uuid AND status = 'finalized'", selectedPlaceId, 1);
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE id = ?::uuid AND status = 'superseded'", otherPlaceId, 1);
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE id = ?::uuid AND status = 'finalized'", selectedTimeId, 1);
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE id = ?::uuid AND status = 'superseded'", otherTimeId, 1);
+        expectCount("SELECT COUNT(*) FROM notifications WHERE type = 'plan_finalized' AND payload->>'plan_id' = ?", planId, 2);
+        expectCount(
+            "SELECT COUNT(*) FROM messages WHERE context_id = ?::uuid AND type = 'system' AND text = 'План подтверждён'",
+            planId,
+            1
+        );
+
+        mockMvc.perform(post("/api/plans/" + planId + "/proposals")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"place\",\"value_text\":\"После финала\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+        mockMvc.perform(post("/api/plans/" + planId + "/proposals/" + selectedPlaceId + "/vote")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.plan.id").value(planId))
+            .andExpect(jsonPath("$.plan.lifecycle_state").value("active"))
+            .andExpect(jsonPath("$.plan.place_status").value("proposed"))
+            .andExpect(jsonPath("$.plan.time_status").value("proposed"));
+
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE plan_id = ?::uuid AND status != 'active'", planId, 0);
+        expectCount("SELECT COUNT(*) FROM notifications WHERE type = 'plan_unfinalized' AND payload->>'plan_id' = ?", planId, 2);
+        expectCount(
+            "SELECT COUNT(*) FROM messages WHERE context_id = ?::uuid AND type = 'system' AND text = 'Подтверждение отменено'",
+            planId,
+            1
+        );
+        String newProposalId = createProposal(creatorToken, planId, "place", "После отмены");
+        mockMvc.perform(post("/api/plans/" + planId + "/proposals/" + newProposalId + "/vote")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.vote.proposal_id").value(newProposalId));
+    }
+
+    @Test
+    void lifecycleEndpointErrorsMatchFastifyShapes() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Lifecycle errors", participantId);
+        String placeProposalId = createProposal(creatorToken, planId, "place", "Правильное место");
+        String timeProposalId = createProposalWithFields(
+            creatorToken,
+            planId,
+            "time",
+            "2026-06-01T19:00:00+03:00",
+            "\"value_datetime\":\"2026-06-01T19:00:00+03:00\""
+        );
+        String otherPlanId = createPlan(creatorToken, "Other lifecycle", participantId);
+        String otherPlaceId = createProposal(creatorToken, otherPlanId, "place", "Чужое место");
+        String missingPlanId = UUID.randomUUID().toString();
+
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+            .andExpect(jsonPath("$.message").value("Only creator can finalize"));
+        mockMvc.perform(post("/api/plans/" + missingPlanId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+            .andExpect(jsonPath("$.message").value("Plan must have confirmed place and time before finalizing"));
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + otherPlaceId + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.message").value("Place proposal not found"));
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + timeProposalId + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Place proposal not found"));
+
+        setPlanLifecycleById(planId, "completed");
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + placeProposalId + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only finalize active plans"));
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only unfinalize finalized plans"));
+        setPlanLifecycleById(planId, "cancelled");
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only unfinalize finalized plans"));
+        setPlanLifecycleById(planId, "active");
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only unfinalize finalized plans"));
+
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + placeProposalId + "\",\"time_proposal_id\":\"" + timeProposalId + "\"}"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only finalize active plans"));
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.message").value("Only creator can unfinalize"));
+        mockMvc.perform(post("/api/plans/" + missingPlanId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+    }
+
+    @Test
+    void creatorCanRepeatCompletedPlanWithParticipantsInvitationsAndNotifications() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantOneId = userId("+79991111111");
+        String participantTwoId = userId("+79992222222");
+        String planId = createPlanWithParticipantIds(
+            creatorToken,
+            "Repeat source",
+            "coffee",
+            "[\"" + participantOneId + "\",\"" + participantTwoId + "\"]"
+        );
+        String proposalId = createProposal(creatorToken, planId, "place", "Не копировать");
+        mockMvc.perform(post("/api/plans/" + planId + "/proposals/" + proposalId + "/vote")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk());
+        setPlanLifecycleById(planId, "completed");
+
+        String response = mockMvc.perform(post("/api/plans/" + planId + "/repeat")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.plan.lifecycle_state").value("active"))
+            .andExpect(jsonPath("$.plan.title").value("Repeat source"))
+            .andExpect(jsonPath("$.plan.activity_type").value("coffee"))
+            .andExpect(jsonPath("$.plan.place_status").value("undecided"))
+            .andExpect(jsonPath("$.plan.time_status").value("undecided"))
+            .andExpect(jsonPath("$.plan.confirmed_place_text").doesNotExist())
+            .andExpect(jsonPath("$.plan.confirmed_time").doesNotExist())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String newPlanId = read(response, "/plan/id").asText();
+
+        expectCount("SELECT COUNT(*) FROM plan_proposals WHERE plan_id = ?::uuid", newPlanId, 0);
+        expectCount("SELECT COUNT(*) FROM messages WHERE context_id = ?::uuid", newPlanId, 0);
+        expectCount(
+            "SELECT COUNT(*) FROM votes v JOIN plan_proposals pp ON pp.id = v.proposal_id WHERE pp.plan_id = ?::uuid",
+            newPlanId,
+            0
+        );
+        expectCount(
+            "SELECT COUNT(*) FROM plan_participants WHERE plan_id = ?::uuid AND user_id = ?::uuid AND status = 'going'",
+            newPlanId,
+            userId("+79990000000"),
+            1
+        );
+        expectCount(
+            "SELECT COUNT(*) FROM plan_participants WHERE plan_id = ?::uuid AND status = 'invited'",
+            newPlanId,
+            2
+        );
+        expectCount("SELECT COUNT(*) FROM invitations WHERE type = 'plan' AND target_id = ?::uuid", newPlanId, 2);
+        expectCount("SELECT COUNT(*) FROM notifications WHERE type = 'plan_invite' AND payload->>'plan_id' = ?", newPlanId, 2);
+    }
+
+    @Test
+    void repeatErrorsMatchFastifyShapes() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Repeat errors", participantId);
+        String missingPlanId = UUID.randomUUID().toString();
+
+        mockMvc.perform(post("/api/plans/" + missingPlanId + "/repeat")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+        mockMvc.perform(post("/api/plans/" + planId + "/repeat")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only repeat completed plans"));
+        setPlanLifecycleById(planId, "finalized");
+        mockMvc.perform(post("/api/plans/" + planId + "/repeat")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only repeat completed plans"));
+        setPlanLifecycleById(planId, "cancelled");
+        mockMvc.perform(post("/api/plans/" + planId + "/repeat")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Can only repeat completed plans"));
+        setPlanLifecycleById(planId, "completed");
+        mockMvc.perform(post("/api/plans/" + planId + "/repeat")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.message").value("Only creator can repeat"));
+    }
+
+    @Test
     void unauthorizedNotFoundAndErrorEnvelopesMatchFastify() throws Exception {
         String token = login("+79990000000");
 
@@ -776,6 +1037,44 @@ class PlansInvitationsNotificationsParityIntegrationTest {
             .getResponse()
             .getContentAsString();
         return read(response, "/proposal/id").asText();
+    }
+
+    private String createProposalWithFields(
+        String token,
+        String planId,
+        String type,
+        String valueText,
+        String extraFields
+    ) throws Exception {
+        String response = mockMvc.perform(post("/api/plans/" + planId + "/proposals")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"" + type + "\",\"value_text\":\"" + valueText + "\"," + extraFields + "}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return read(response, "/proposal/id").asText();
+    }
+
+    private String createPlanWithParticipantIds(
+        String token,
+        String title,
+        String activityType,
+        String participantIds
+    ) throws Exception {
+        String response = mockMvc.perform(post("/api/plans")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"title\":\"" + title + "\",\"activity_type\":\"" + activityType + "\",\"participant_ids\":"
+                        + participantIds + "}"
+                ))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return read(response, "/plan/id").asText();
     }
 
     private void setPlanLifecycleById(String planId, String lifecycle) {
