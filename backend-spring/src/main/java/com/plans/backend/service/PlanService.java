@@ -1,8 +1,7 @@
 package com.plans.backend.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plans.backend.api.error.ApiException;
+import com.plans.backend.api.realtime.RealtimeEventPublisher;
 import com.plans.backend.persistence.SqlRows;
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
@@ -27,11 +26,17 @@ public class PlanService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final JdbcClient jdbc;
-    private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
+    private final RealtimeEventPublisher realtime;
 
-    public PlanService(JdbcClient jdbc, ObjectMapper objectMapper) {
+    public PlanService(
+        JdbcClient jdbc,
+        NotificationService notificationService,
+        RealtimeEventPublisher realtime
+    ) {
         this.jdbc = jdbc;
-        this.objectMapper = objectMapper;
+        this.notificationService = notificationService;
+        this.realtime = realtime;
     }
 
     public Map<String, Object> listPlans(UUID userId, String lifecycle, String participant, String page, String limit) {
@@ -261,6 +266,12 @@ public class PlanService {
             "plan_join_via_link",
             planJoinViaLinkPayload(planId, userId, joinerName)
         );
+        Map<String, Object> participant = participantRows(planId, userId).stream().findFirst().orElseThrow();
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.participant.added",
+            Map.of("plan_id", planId.toString(), "participant", participant)
+        );
         return Map.of("already_joined", false, "plan", getPlanFull(planId));
     }
 
@@ -357,6 +368,7 @@ public class PlanService {
         }
 
         proposal.put("votes", List.of());
+        realtime.emitAfterCommit("plan:" + planId, "plan.proposal.created", proposal);
         return Map.of("proposal", proposal);
     }
 
@@ -408,6 +420,11 @@ public class PlanService {
             .findFirst()
             .map(SqlRows::normalize)
             .orElseThrow();
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.vote.changed",
+            voteChangedPayload(planId, proposalId, userId, "added", vote)
+        );
         return Map.of("vote", vote);
     }
 
@@ -432,6 +449,11 @@ public class PlanService {
         if (deleted == 0) {
             throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Vote not found");
         }
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.vote.changed",
+            voteChangedPayload(planId, proposalId, userId, "removed", null)
+        );
     }
 
     public Map<String, Object> messages(UUID userId, UUID planId, String before, String limit) {
@@ -503,7 +525,9 @@ public class PlanService {
             .param("clientMessageId", clientMessageId)
             .query()
             .singleRow();
-        return Map.of("message", messageById(UUID.fromString(message.get("id").toString())));
+        Map<String, Object> messageResponse = messageById(UUID.fromString(message.get("id").toString()));
+        realtime.emitAfterCommit("plan:" + planId, "plan.message.created", messageResponse);
+        return Map.of("message", messageResponse);
     }
 
 
@@ -579,6 +603,15 @@ public class PlanService {
             .update();
         insertPlanLifecycleNotifications(planId, "plan_finalized", plan.get("title").toString());
         insertSystemMessage(planId, userId, "План подтверждён");
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.finalized",
+            nullablePayload(
+                "plan_id", planId.toString(),
+                "place_proposal_id", placeProposalId == null ? null : placeProposalId.toString(),
+                "time_proposal_id", timeProposalId == null ? null : timeProposalId.toString()
+            )
+        );
         return Map.of("plan", getPlanFull(planId));
     }
 
@@ -619,6 +652,7 @@ public class PlanService {
         }
         insertPlanLifecycleNotifications(planId, "plan_unfinalized", plan.get("title").toString());
         insertSystemMessage(planId, userId, "Подтверждение отменено");
+        realtime.emitAfterCommit("plan:" + planId, "plan.unfinalized", Map.of("plan_id", planId.toString()));
         return Map.of("plan", getPlanFull(planId));
     }
 
@@ -708,6 +742,7 @@ public class PlanService {
         jdbc.sql("UPDATE plans SET lifecycle_state = 'cancelled', updated_at = now() WHERE id = :planId")
             .param("planId", planId)
             .update();
+        realtime.emitAfterCommit("plan:" + planId, "plan.cancelled", Map.of("plan_id", planId.toString()));
         return Map.of("plan", getPlanFull(planId));
     }
 
@@ -728,6 +763,7 @@ public class PlanService {
         jdbc.sql("UPDATE plans SET lifecycle_state = 'completed', updated_at = now() WHERE id = :planId")
             .param("planId", planId)
             .update();
+        realtime.emitAfterCommit("plan:" + planId, "plan.completed", Map.of("plan_id", planId.toString()));
         return Map.of("plan", getPlanFull(planId));
     }
 
@@ -801,6 +837,11 @@ public class PlanService {
         Map<String, Object> participant = participantRows(planId, inviteeId).stream()
             .findFirst()
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Participant not found"));
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.participant.added",
+            Map.of("plan_id", planId.toString(), "participant", participant)
+        );
         return Map.of("participant", participant);
     }
 
@@ -828,6 +869,11 @@ public class PlanService {
         Map<String, Object> participant = participantRows(planId, participantId).stream()
             .findFirst()
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Participant not found"));
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.participant.updated",
+            Map.of("plan_id", planId.toString(), "participant", participant)
+        );
         return Map.of("participant", participant);
     }
 
@@ -841,6 +887,11 @@ public class PlanService {
             .param("planId", planId)
             .param("userId", participantId)
             .update();
+        realtime.emitAfterCommit(
+            "plan:" + planId,
+            "plan.participant.removed",
+            Map.of("plan_id", planId.toString(), "user_id", participantId.toString())
+        );
     }
 
     private Map<String, Object> planInvitePayload(UUID planId, String inviterName) {
@@ -1290,24 +1341,34 @@ public class PlanService {
     }
 
     private void insertNotification(UUID userId, String type, Map<String, Object> payload) {
-        jdbc.sql(
-                """
-                INSERT INTO notifications (user_id, type, payload)
-                VALUES (:userId, CAST(:type AS notification_type), CAST(:payload AS jsonb))
-                """
-            )
-            .param("userId", userId)
-            .param("type", type)
-            .param("payload", writeJson(payload))
-            .update();
+        notificationService.create(userId, type, payload);
     }
 
-    private String writeJson(Map<String, Object> payload) {
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Failed to serialize notification payload", exception);
+    private Map<String, Object> voteChangedPayload(
+        UUID planId,
+        UUID proposalId,
+        UUID voterId,
+        String action,
+        Map<String, Object> vote
+    ) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("proposal_id", proposalId.toString());
+        payload.put("plan_id", planId.toString());
+        payload.put("voter_id", voterId.toString());
+        payload.put("action", action);
+        if (vote != null) {
+            payload.put("vote_id", vote.get("id"));
+            payload.put("created_at", vote.get("created_at"));
         }
+        return payload;
+    }
+
+    private Map<String, Object> nullablePayload(Object... values) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        for (int index = 0; index < values.length; index += 2) {
+            payload.put(values[index].toString(), values[index + 1]);
+        }
+        return payload;
     }
 
     private List<UUID> participantIds(Object value, UUID currentUserId) {

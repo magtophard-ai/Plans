@@ -30,10 +30,17 @@ Fastify remains canonical until full Spring parity and switchover are complete.
 - Share-link endpoints:
   - `GET /api/plans/by-token/:token`
   - `POST /api/plans/by-token/:token/join`
+- Realtime WebSocket parity for REST core mutations:
+  - Raw JSON WebSocket at `GET /api/ws`.
+  - JWT auth with `auth` / `auth_ok` / `auth_error`.
+  - `subscribe` / `unsubscribe` for `user:{userId}` and `plan:{planId}`.
+  - Plan events: `plan.message.created`, `plan.proposal.created`, `plan.vote.changed`,
+    `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`,
+    `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed`.
+  - User event: `notification.created`.
 
 ## Not yet covered
 
-- Realtime WebSocket behavior.
 - Content ops.
 
 ## Package structure
@@ -43,7 +50,7 @@ Future slices should use this structure:
 - `com.plans.backend.api` — REST/WebSocket API layer.
 - `com.plans.backend.api.error` — global exception handling and error envelopes.
 - `com.plans.backend.api.health` — health endpoint.
-- `com.plans.backend.api.realtime` — future raw JSON WebSocket implementation.
+- `com.plans.backend.api.realtime` — raw JSON WebSocket implementation.
 - `com.plans.backend.config` — Spring configuration.
 - `com.plans.backend.domain` — domain types.
 - `com.plans.backend.service` — business services.
@@ -57,6 +64,7 @@ From the repo root:
 cd backend-spring
 ./gradlew test
 ./gradlew coreSmokeTest
+./gradlew realtimeSmokeTest
 ```
 
 ## Local tests
@@ -115,6 +123,43 @@ Smoke coverage:
 Known gaps intentionally outside this smoke:
 
 - Realtime WebSocket behavior.
+- Content ops.
+
+## Spring realtime smoke
+
+Run from the repo root:
+
+```bash
+cd backend-spring
+./gradlew realtimeSmokeTest
+```
+
+The smoke starts Spring on a random local port, connects real WebSocket clients to
+`/api/ws`, and drives mutations through REST. WebSocket remains push-only: REST is still the
+source of truth for writes.
+
+Required local env:
+
+- Java 21.
+- Docker access for Testcontainers.
+
+The test pins dev values via Spring test properties:
+
+- `JWT_SECRET=dev-secret`
+- `OTP_CODE=1111`
+
+Smoke coverage:
+
+- JWT WebSocket auth;
+- `plan:{planId}` subscribe for participants;
+- forbidden outsider subscribe to another user's plan;
+- `user:{userId}` notification channel subscribe;
+- plan events for message, proposal, vote/unvote, participant add/update/remove,
+  finalize, unfinalize, complete, and cancel;
+- `notification.created` on invite notification creation.
+
+Known gap intentionally outside this smoke:
+
 - Content ops.
 
 Local run on Spring `:3001`:

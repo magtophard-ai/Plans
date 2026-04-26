@@ -23,6 +23,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	implementation 'org.flywaydb:flyway-core'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	implementation 'org.postgresql:postgresql'
@@ -45,5 +46,16 @@ tasks.register('coreSmokeTest', Test) {
 	useJUnitPlatform()
 	filter {
 		includeTestsMatching 'com.plans.backend.api.smoke.SpringCoreSmokeIntegrationTest'
+	}
+}
+
+tasks.register('realtimeSmokeTest', Test) {
+	description = 'Runs Spring realtime WebSocket smoke test.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	filter {
+		includeTestsMatching 'com.plans.backend.api.smoke.SpringRealtimeSmokeIntegrationTest'
 	}
 }
