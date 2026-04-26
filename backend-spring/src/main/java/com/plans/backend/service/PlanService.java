@@ -374,7 +374,7 @@ public class PlanService {
 
         Map<String, Object> existing = findVote(proposalId, userId);
         if (existing != null) {
-            return Map.of("vote", existing);
+            throw new ApiException(HttpStatus.CONFLICT, "ALREADY_VOTED", "Already voted on this proposal");
         }
 
         Number votesForType = jdbc.sql(

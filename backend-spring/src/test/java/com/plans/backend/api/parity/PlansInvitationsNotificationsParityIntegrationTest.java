@@ -573,8 +573,9 @@ class PlansInvitationsNotificationsParityIntegrationTest {
 
         mockMvc.perform(post("/api/plans/" + planId + "/proposals/" + placeProposalId + "/vote")
                 .header("Authorization", bearer(participantToken)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.vote.proposal_id").value(placeProposalId));
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ALREADY_VOTED"))
+            .andExpect(jsonPath("$.message").value("Already voted on this proposal"));
         expectCount(
             "SELECT COUNT(*) FROM votes WHERE proposal_id = ?::uuid AND voter_id = ?::uuid",
             placeProposalId,
