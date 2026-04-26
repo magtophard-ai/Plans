@@ -34,4 +34,16 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	exclude '**/api/smoke/**'
+}
+
+tasks.register('coreSmokeTest', Test) {
+	description = 'Runs Spring REST core smoke test.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	filter {
+		includeTestsMatching 'com.plans.backend.api.smoke.SpringCoreSmokeIntegrationTest'
+	}
 }

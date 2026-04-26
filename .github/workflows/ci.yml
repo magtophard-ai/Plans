@@ -60,6 +60,24 @@ jobs:
             backend-spring/gradle/wrapper/gradle-wrapper.properties
       - run: ./gradlew test
 
+  backend-spring-core-smoke:
+    name: backend-spring core smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-spring
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            backend-spring/*.gradle
+            backend-spring/gradle/wrapper/gradle-wrapper.properties
+      - run: ./gradlew coreSmokeTest
+
   backend-smoke:
     name: backend e2e smoke
     runs-on: ubuntu-latest

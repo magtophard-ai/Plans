@@ -56,6 +56,7 @@ From the repo root:
 ```bash
 cd backend-spring
 ./gradlew test
+./gradlew coreSmokeTest
 ```
 
 ## Local tests
@@ -68,6 +69,53 @@ cd backend-spring
 ```
 
 The integration tests use Testcontainers and require local Docker access.
+
+## Spring REST core smoke
+
+Run from the repo root:
+
+```bash
+cd backend-spring
+./gradlew coreSmokeTest
+```
+
+The smoke uses Spring Boot + MockMvc against the real HTTP controller layer with a
+PostgreSQL 17 Testcontainers database. It does not start Fastify, the frontend, realtime,
+or content ops.
+
+Required local env:
+
+- Java 21.
+- Docker access for Testcontainers.
+
+The test pins dev values via Spring test properties:
+
+- `JWT_SECRET=dev-secret`
+- `OTP_CODE=1111`
+
+Smoke coverage:
+
+- health/startup check;
+- dev OTP login/auth;
+- authenticated events list;
+- create/list/get plan;
+- share-token preview and join;
+- invite/list participants;
+- create place and time proposals, including valid `value_datetime`;
+- vote/unvote;
+- finalize and verify proposal/vote actions are blocked;
+- unfinalize and verify proposal/vote work again;
+- post message with `client_message_id`;
+- duplicate message idempotency with no duplicate row;
+- list messages and verify `proposal_card`, `system`, and `user` message types;
+- complete plan;
+- repeat completed plan;
+- list/read/read-all notifications.
+
+Known gaps intentionally outside this smoke:
+
+- Realtime WebSocket behavior.
+- Content ops.
 
 Local run on Spring `:3001`:
 
