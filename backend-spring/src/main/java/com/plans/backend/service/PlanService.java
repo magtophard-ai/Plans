@@ -188,6 +188,82 @@ public class PlanService {
         return Map.of("plan", getPlanFullRequired(planId));
     }
 
+    public Map<String, Object> getPlanByToken(String token) {
+        Map<String, Object> plan = jdbc.sql(
+                """
+                SELECT p.*,
+                       u.id AS u_id, u.name AS u_name, u.username AS u_username, u.avatar_url AS u_avatar,
+                       (SELECT COUNT(*)::int FROM plan_participants pp WHERE pp.plan_id = p.id) AS participant_count
+                FROM plans p
+                LEFT JOIN users u ON u.id = p.creator_id
+                WHERE p.share_token = :token
+                """
+            )
+            .param("token", token)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .map(this::planPreviewRow)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Plan not found"));
+        return Map.of("plan", plan);
+    }
+
+    @Transactional
+    public Map<String, Object> joinPlanByToken(UUID userId, String token) {
+        Map<String, Object> plan = jdbc.sql("SELECT * FROM plans WHERE share_token = :token FOR UPDATE")
+            .param("token", token)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .map(SqlRows::normalize)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Plan not found"));
+        UUID planId = UUID.fromString(plan.get("id").toString());
+        String state = plan.get("lifecycle_state").toString();
+        if (!"active".equals(state) && !"finalized".equals(state)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATE", "Plan is not joinable");
+        }
+
+        boolean existing = jdbc.sql(
+                "SELECT 1 FROM plan_participants WHERE plan_id = :planId AND user_id = :userId"
+            )
+            .param("planId", planId)
+            .param("userId", userId)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .isPresent();
+        if (existing) {
+            return Map.of("already_joined", true, "plan", getPlanFull(planId));
+        }
+
+        Number count = jdbc.sql("SELECT COUNT(*) FROM plan_participants WHERE plan_id = :planId")
+            .param("planId", planId)
+            .query(Number.class)
+            .single();
+        if (count.intValue() >= 15) {
+            throw new ApiException(HttpStatus.CONFLICT, "PLAN_FULL", "Plan has max 15 participants");
+        }
+
+        jdbc.sql("INSERT INTO plan_participants (plan_id, user_id, status) VALUES (:planId, :userId, 'going')")
+            .param("planId", planId)
+            .param("userId", userId)
+            .update();
+        String joinerName = jdbc.sql("SELECT name FROM users WHERE id = :userId")
+            .param("userId", userId)
+            .query(String.class)
+            .optional()
+            .orElse(null);
+        insertNotification(
+            UUID.fromString(plan.get("creator_id").toString()),
+            "plan_join_via_link",
+            planJoinViaLinkPayload(planId, userId, joinerName)
+        );
+        return Map.of("already_joined", false, "plan", getPlanFull(planId));
+    }
+
     @Transactional
     public Map<String, Object> cancel(UUID userId, UUID planId) {
         Map<String, Object> plan = basePlanRequired(planId);
@@ -344,6 +420,14 @@ public class PlanService {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
         payload.put("plan_id", planId.toString());
         payload.put("inviter_name", inviterName);
+        return payload;
+    }
+
+    private Map<String, Object> planJoinViaLinkPayload(UUID planId, UUID joinerId, String joinerName) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("plan_id", planId.toString());
+        payload.put("joiner_id", joinerId.toString());
+        payload.put("joiner_name", joinerName);
         return payload;
     }
 
@@ -508,6 +592,31 @@ public class PlanService {
         event.put("friends_interested", List.of());
         event.put("friends_plan_count", 0);
         return event;
+    }
+
+    private Map<String, Object> planPreviewRow(Map<String, Object> row) {
+        Map<String, Object> normalized = SqlRows.normalize(row);
+        LinkedHashMap<String, Object> plan = new LinkedHashMap<>();
+        plan.put("id", normalized.get("id"));
+        plan.put("title", normalized.get("title"));
+        plan.put("activity_type", normalized.get("activity_type"));
+        plan.put("lifecycle_state", normalized.get("lifecycle_state"));
+        plan.put("confirmed_place_text", normalized.get("confirmed_place_text"));
+        plan.put("confirmed_time", normalized.get("confirmed_time"));
+        plan.put("share_token", normalized.get("share_token"));
+        if (normalized.get("u_id") == null) {
+            plan.put("creator", null);
+        } else {
+            LinkedHashMap<String, Object> creator = new LinkedHashMap<>();
+            creator.put("id", normalized.get("u_id"));
+            creator.put("name", normalized.get("u_name"));
+            creator.put("username", normalized.get("u_username"));
+            creator.put("avatar_url", normalized.get("u_avatar"));
+            plan.put("creator", creator);
+        }
+        plan.put("participant_count", normalized.get("participant_count"));
+        plan.put("max_participants", 15);
+        return plan;
     }
 
     private void insertNotification(UUID userId, String type, Map<String, Object> payload) {

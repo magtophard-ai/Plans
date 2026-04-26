@@ -46,6 +46,16 @@ public class PlanController {
             .body(planService.createPlan(authenticatedUser.id(), body == null ? Map.of() : body));
     }
 
+    @GetMapping("/by-token/{token}")
+    Map<String, Object> getByToken(@PathVariable String token) {
+        return planService.getPlanByToken(token);
+    }
+
+    @PostMapping("/by-token/{token}/join")
+    Map<String, Object> joinByToken(AuthenticatedUser authenticatedUser, @PathVariable String token) {
+        return planService.joinPlanByToken(authenticatedUser.id(), token);
+    }
+
     @GetMapping("/{id}")
     Map<String, Object> get(AuthenticatedUser authenticatedUser, @PathVariable UUID id) {
         return planService.getPlan(id);

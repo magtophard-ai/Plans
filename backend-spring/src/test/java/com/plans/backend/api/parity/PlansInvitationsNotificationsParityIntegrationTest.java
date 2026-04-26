@@ -264,6 +264,140 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void fetchPlanByValidShareTokenReturnsFastifyPreviewWithoutAuth() throws Exception {
+        String token = login("+79990000000");
+        String shareToken = createPlanShareToken(token, "Shared preview");
+
+        mockMvc.perform(get("/api/plans/by-token/" + shareToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.plan.title").value("Shared preview"))
+            .andExpect(jsonPath("$.plan.activity_type").value("other"))
+            .andExpect(jsonPath("$.plan.lifecycle_state").value("active"))
+            .andExpect(jsonPath("$.plan.share_token").value(shareToken))
+            .andExpect(jsonPath("$.plan.creator.name").value("Я"))
+            .andExpect(jsonPath("$.plan.participant_count").value(1))
+            .andExpect(jsonPath("$.plan.max_participants").value(15))
+            .andExpect(jsonPath("$.plan.participants").doesNotExist())
+            .andExpect(jsonPath("$.plan.proposals").doesNotExist());
+    }
+
+    @Test
+    void shareTokenInvalidAndUnauthorizedBehaviorMatchesFastify() throws Exception {
+        String token = login("+79990000000");
+        String shareToken = createPlanShareToken(token, "Auth required join");
+
+        mockMvc.perform(get("/api/plans/by-token/not-a-real-token"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+
+        mockMvc.perform(post("/api/plans/by-token/" + shareToken + "/join"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+            .andExpect(jsonPath("$.message").value("Unauthorized"));
+
+        mockMvc.perform(post("/api/plans/by-token/not-a-real-token/join")
+                .header("Authorization", bearer(token)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+    }
+
+    @Test
+    void joinPlanByTokenAddsGoingParticipantAndNotifiesCreator() throws Exception {
+        String creatorToken = login("+79990000000");
+        String joinerToken = login("+79991111111");
+        String creatorId = userId("+79990000000");
+        String joinerId = userId("+79991111111");
+        String shareToken = createPlanShareToken(creatorToken, "Join by link");
+        String planId = planIdForShareToken(shareToken);
+
+        mockMvc.perform(post("/api/plans/by-token/" + shareToken + "/join")
+                .header("Authorization", bearer(joinerToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.already_joined").value(false))
+            .andExpect(jsonPath("$.plan.title").value("Join by link"))
+            .andExpect(jsonPath("$.plan.participants", hasSize(2)))
+            .andExpect(jsonPath("$.plan.participants[?(@.user_id == '" + joinerId + "')].status").value("going"));
+
+        expectCount(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ?::uuid AND type = 'plan_join_via_link' AND payload->>'joiner_id' = ? AND payload->>'plan_id' = ?",
+            creatorId,
+            joinerId,
+            planId,
+            1
+        );
+        String joinerName = jdbc.queryForObject(
+            "SELECT payload->>'joiner_name' FROM notifications WHERE user_id = ?::uuid AND payload->>'joiner_id' = ? AND payload->>'plan_id' = ? ORDER BY created_at DESC LIMIT 1",
+            String.class,
+            creatorId,
+            joinerId,
+            planId
+        );
+        org.assertj.core.api.Assertions.assertThat(joinerName).isEqualTo("Маша");
+    }
+
+    @Test
+    void joinPlanByTokenReturnsAlreadyJoinedBeforeFullCheck() throws Exception {
+        String creatorToken = login("+79990000000");
+        String shareToken = createPlanShareToken(creatorToken, "Already joined link");
+
+        mockMvc.perform(post("/api/plans/by-token/" + shareToken + "/join")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.already_joined").value(true))
+            .andExpect(jsonPath("$.plan.title").value("Already joined link"))
+            .andExpect(jsonPath("$.plan.participants", hasSize(1)));
+    }
+
+    @Test
+    void joinPlanByTokenRejectsFullPlan() throws Exception {
+        String creatorToken = login("+79990000000");
+        String joinerToken = login("+79991111111");
+        String shareToken = createPlanShareToken(
+            creatorToken,
+            "Full share link",
+            "\"participant_ids\":" + participantIds(14, 300)
+        );
+
+        mockMvc.perform(post("/api/plans/by-token/" + shareToken + "/join")
+                .header("Authorization", bearer(joinerToken)))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("PLAN_FULL"))
+            .andExpect(jsonPath("$.message").value("Plan has max 15 participants"));
+    }
+
+    @Test
+    void joinPlanByTokenLifecycleRestrictionsMatchFastify() throws Exception {
+        String creatorToken = login("+79990000000");
+        String joinerToken = login("+79991111111");
+        String completedToken = createPlanShareToken(creatorToken, "Completed link");
+        String cancelledToken = createPlanShareToken(creatorToken, "Cancelled link");
+        String finalizedToken = createPlanShareToken(creatorToken, "Finalized link");
+        setPlanLifecycle(completedToken, "completed");
+        setPlanLifecycle(cancelledToken, "cancelled");
+        setPlanLifecycle(finalizedToken, "finalized");
+
+        mockMvc.perform(post("/api/plans/by-token/" + completedToken + "/join")
+                .header("Authorization", bearer(joinerToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+            .andExpect(jsonPath("$.message").value("Plan is not joinable"));
+
+        mockMvc.perform(post("/api/plans/by-token/" + cancelledToken + "/join")
+                .header("Authorization", bearer(joinerToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+            .andExpect(jsonPath("$.message").value("Plan is not joinable"));
+
+        mockMvc.perform(post("/api/plans/by-token/" + finalizedToken + "/join")
+                .header("Authorization", bearer(joinerToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.already_joined").value(false))
+            .andExpect(jsonPath("$.plan.lifecycle_state").value("finalized"));
+    }
+
+    @Test
     void nonCreatorRemoveIsForbidden() throws Exception {
         String nonCreatorToken = login("+79991111111");
         String friendId = userId("+79992222222");
@@ -428,6 +562,35 @@ class PlansInvitationsNotificationsParityIntegrationTest {
         return id;
     }
 
+    private String createPlanShareToken(String token, String title, String... extraFields) throws Exception {
+        StringBuilder body = new StringBuilder("{\"title\":\"").append(title).append('"');
+        for (String field : extraFields) {
+            body.append(',').append(field);
+        }
+        body.append('}');
+        String response = mockMvc.perform(post("/api/plans")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString()))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return read(response, "/plan/share_token").asText();
+    }
+
+    private void setPlanLifecycle(String shareToken, String lifecycle) {
+        jdbc.update(
+            "UPDATE plans SET lifecycle_state = ?::plan_lifecycle WHERE share_token = ?",
+            lifecycle,
+            shareToken
+        );
+    }
+
+    private String planIdForShareToken(String shareToken) {
+        return jdbc.queryForObject("SELECT id::text FROM plans WHERE share_token = ?", String.class, shareToken);
+    }
+
     private String manyParticipantIds() throws Exception {
         return participantIds(15, 0);
     }
@@ -457,6 +620,11 @@ class PlansInvitationsNotificationsParityIntegrationTest {
 
     private void expectCount(String sql, String firstId, String secondId, int expected) {
         Integer count = jdbc.queryForObject(sql, Integer.class, firstId, secondId);
+        org.assertj.core.api.Assertions.assertThat(count).isEqualTo(expected);
+    }
+
+    private void expectCount(String sql, String firstId, String secondId, String thirdId, int expected) {
+        Integer count = jdbc.queryForObject(sql, Integer.class, firstId, secondId, thirdId);
         org.assertj.core.api.Assertions.assertThat(count).isEqualTo(expected);
     }
 
