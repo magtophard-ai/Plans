@@ -20,7 +20,7 @@ implementation work.
 
 ## PR #1: Spring DB/Flyway/seed checkpoint
 
-Merged PR: <https://github.com/magtophard-ai/Plans/pull/1>
+Merged PR: <https://github.com/dotagovnos1/Plans/pull/1>
 
 PR #1 added the Spring database baseline and verification foundation:
 
