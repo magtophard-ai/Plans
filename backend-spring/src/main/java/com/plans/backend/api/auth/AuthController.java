@@ -7,9 +7,12 @@ import com.plans.backend.auth.OtpService;
 import com.plans.backend.auth.PhoneNormalizer;
 import com.plans.backend.auth.VerifyOtpResult;
 import com.plans.backend.persistence.SqlRows;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -114,19 +117,45 @@ public class AuthController {
     }
 
     private Map<String, Object> createUser(String phone) {
+        for (String username : usernameCandidates(phone)) {
+            try {
+                return insertUser(phone, username);
+            } catch (DuplicateKeyException exception) {
+                Map<String, Object> user = findUserByPhone(phone);
+                if (user != null) {
+                    return user;
+                }
+            }
+        }
+        throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error");
+    }
+
+    private Map<String, Object> insertUser(String phone, String username) {
         Map<String, Object> user = jdbc.sql(
                 """
                 INSERT INTO users (phone, name, username)
                 VALUES (:phone, :name, :username)
+                ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
                 RETURNING *
                 """
             )
             .param("phone", phone)
             .param("name", "Пользователь")
-            .param("username", "user_" + phone.substring(phone.length() - 4))
+            .param("username", username)
             .query()
             .singleRow();
         return SqlRows.normalize(user);
+    }
+
+    private List<String> usernameCandidates(String phone) {
+        String digits = phone.replace("+", "");
+        List<String> candidates = new ArrayList<>();
+        candidates.add("user_" + phone.substring(phone.length() - 4));
+        candidates.add("user_" + digits);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            candidates.add("user_" + digits + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
+        }
+        return candidates;
     }
 
     public record OtpSendRequest(String phone) {

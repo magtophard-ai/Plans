@@ -1,5 +1,6 @@
 package com.plans.backend.api.parity;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.plans.backend.persistence.DevSeedRunner;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,9 +93,26 @@ class AuthDiscoveryParityIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.user.username").value("me"));
 
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + refreshToken))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+            .andExpect(jsonPath("$.message").value("Unauthorized"));
+
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.user.username").value("me"));
+    }
+
+    @Test
+    void otpCreatedUsersAvoidUsernameCollisions() throws Exception {
+        register("+79991230000");
+        register("+79994560000");
+
+        List<String> usernames = jdbc.queryForList(
+            "SELECT username FROM users WHERE phone IN ('+79991230000', '+79994560000')",
+            String.class
+        );
+        assertThat(usernames).hasSize(2).doesNotHaveDuplicates();
     }
 
     @Test
@@ -204,5 +223,17 @@ class AuthDiscoveryParityIntegrationTest {
             .getResponse()
             .getContentAsString();
         return JsonField.readString(verifyJson, "access_token");
+    }
+
+    private void register(String phone) throws Exception {
+        mockMvc.perform(post("/api/auth/otp/send")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phone\":\"" + phone + "\"}"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/otp/verify")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phone\":\"" + phone + "\",\"code\":\"1111\"}"))
+            .andExpect(status().isOk());
     }
 }

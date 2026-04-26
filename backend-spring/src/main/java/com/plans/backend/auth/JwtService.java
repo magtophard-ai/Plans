@@ -71,6 +71,9 @@ public class JwtService {
             if (refresh && !"refresh".equals(claims.path("type").asText(null))) {
                 throw new NotRefreshTokenException();
             }
+            if (!refresh && "refresh".equals(claims.path("type").asText(null))) {
+                throw new InvalidJwtException();
+            }
             return UUID.fromString(claims.path("userId").asText());
         } catch (NotRefreshTokenException exception) {
             throw exception;
