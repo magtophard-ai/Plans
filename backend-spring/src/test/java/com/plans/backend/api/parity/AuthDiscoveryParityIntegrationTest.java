@@ -311,6 +311,117 @@ class AuthDiscoveryParityIntegrationTest {
     }
 
     @Test
+    void newFriendRequestCreatesFriendRequestNotification() throws Exception {
+        LoginResult requester = loginAs(uniquePhone());
+        LoginResult addressee = loginAs(uniquePhone());
+
+        mockMvc.perform(post("/api/users/friends/" + addressee.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.friendship.status").value("pending"));
+
+        String friendshipId = friendshipId(requester.userId(), addressee.userId());
+        assertThat(notificationCount(addressee.userId(), "friend_request")).isOne();
+        assertThat(notificationPayloadValue(addressee.userId(), "friend_request", "friendship_id")).isEqualTo(friendshipId);
+        assertThat(notificationPayloadValue(addressee.userId(), "friend_request", "requester_id")).isEqualTo(requester.userId());
+        assertThat(notificationPayloadValue(addressee.userId(), "friend_request", "requester_name")).isEqualTo(userValue(requester.userId(), "name"));
+        assertThat(notificationPayloadValue(addressee.userId(), "friend_request", "requester_username")).isEqualTo(userValue(requester.userId(), "username"));
+    }
+
+    @Test
+    void duplicateFriendRequestDoesNotCreateExtraNotification() throws Exception {
+        LoginResult requester = loginAs(uniquePhone());
+        LoginResult addressee = loginAs(uniquePhone());
+
+        mockMvc.perform(post("/api/users/friends/" + addressee.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isCreated());
+        assertThat(notificationCount(addressee.userId(), "friend_request")).isOne();
+
+        mockMvc.perform(post("/api/users/friends/" + addressee.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("REQUEST_ALREADY_SENT"));
+        assertThat(notificationCount(addressee.userId(), "friend_request")).isOne();
+    }
+
+    @Test
+    void reversePendingAutoAcceptCreatesFriendAcceptedNotification() throws Exception {
+        LoginResult requester = loginAs(uniquePhone());
+        LoginResult accepter = loginAs(uniquePhone());
+
+        mockMvc.perform(post("/api/users/friends/" + accepter.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isCreated());
+        String friendshipId = friendshipId(requester.userId(), accepter.userId());
+
+        mockMvc.perform(post("/api/users/friends/" + requester.userId())
+                .header("Authorization", "Bearer " + accepter.token()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.friendship.status").value("accepted"));
+
+        assertThat(notificationCount(requester.userId(), "friend_accepted")).isOne();
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "friendship_id")).isEqualTo(friendshipId);
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_id")).isEqualTo(accepter.userId());
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_name")).isEqualTo(userValue(accepter.userId(), "name"));
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_username")).isEqualTo(userValue(accepter.userId(), "username"));
+    }
+
+    @Test
+    void explicitAcceptCreatesFriendAcceptedNotification() throws Exception {
+        LoginResult requester = loginAs(uniquePhone());
+        LoginResult accepter = loginAs(uniquePhone());
+
+        mockMvc.perform(post("/api/users/friends/" + accepter.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isCreated());
+        String friendshipId = friendshipId(requester.userId(), accepter.userId());
+
+        mockMvc.perform(patch("/api/users/friends/" + requester.userId() + "?action=accept")
+                .header("Authorization", "Bearer " + accepter.token()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.friendship.status").value("accepted"));
+
+        assertThat(notificationCount(requester.userId(), "friend_accepted")).isOne();
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "friendship_id")).isEqualTo(friendshipId);
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_id")).isEqualTo(accepter.userId());
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_name")).isEqualTo(userValue(accepter.userId(), "name"));
+        assertThat(notificationPayloadValue(requester.userId(), "friend_accepted", "accepter_username")).isEqualTo(userValue(accepter.userId(), "username"));
+    }
+
+    @Test
+    void declineAndDeleteDoNotCreateUnexpectedNotifications() throws Exception {
+        LoginResult requester = loginAs(uniquePhone());
+        LoginResult addressee = loginAs(uniquePhone());
+
+        mockMvc.perform(post("/api/users/friends/" + addressee.userId())
+                .header("Authorization", "Bearer " + requester.token()))
+            .andExpect(status().isCreated());
+        assertThat(notificationCount(addressee.userId(), "friend_request")).isOne();
+        assertThat(notificationCount(requester.userId(), "friend_accepted")).isZero();
+
+        mockMvc.perform(patch("/api/users/friends/" + requester.userId() + "?action=decline")
+                .header("Authorization", "Bearer " + addressee.token()))
+            .andExpect(status().isNoContent());
+        assertThat(notificationCount(addressee.userId(), "friend_request")).isOne();
+        assertThat(notificationCount(requester.userId(), "friend_accepted")).isZero();
+
+        LoginResult deleter = loginAs(uniquePhone());
+        LoginResult target = loginAs(uniquePhone());
+        mockMvc.perform(post("/api/users/friends/" + target.userId())
+                .header("Authorization", "Bearer " + deleter.token()))
+            .andExpect(status().isCreated());
+        int targetFriendRequests = notificationCount(target.userId(), "friend_request");
+        int deleterFriendAccepted = notificationCount(deleter.userId(), "friend_accepted");
+
+        mockMvc.perform(delete("/api/users/friends/" + target.userId())
+                .header("Authorization", "Bearer " + deleter.token()))
+            .andExpect(status().isNoContent());
+        assertThat(notificationCount(target.userId(), "friend_request")).isEqualTo(targetFriendRequests);
+        assertThat(notificationCount(deleter.userId(), "friend_accepted")).isEqualTo(deleterFriendAccepted);
+    }
+
+    @Test
     void friendWriteErrorsUseFastifyEnvelope() throws Exception {
         String token = login();
         String unknownUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -434,6 +545,39 @@ class AuthDiscoveryParityIntegrationTest {
     private String uniquePhone() {
         String digits = UUID.randomUUID().toString().replaceAll("\\D", "") + "0000000";
         return "+7988" + digits.substring(0, 7);
+    }
+
+    private String friendshipId(String requesterId, String addresseeId) {
+        return jdbc.queryForObject(
+            "SELECT id::text FROM friendships WHERE requester_id = ?::uuid AND addressee_id = ?::uuid",
+            String.class,
+            requesterId,
+            addresseeId
+        );
+    }
+
+    private String userValue(String userId, String column) {
+        return jdbc.queryForObject("SELECT " + column + " FROM users WHERE id = ?::uuid", String.class, userId);
+    }
+
+    private int notificationCount(String userId, String type) {
+        Integer count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ?::uuid AND type = CAST(? AS notification_type)",
+            Integer.class,
+            userId,
+            type
+        );
+        return count;
+    }
+
+    private String notificationPayloadValue(String userId, String type, String key) {
+        return jdbc.queryForObject(
+            "SELECT jsonb_extract_path_text(payload, ?) FROM notifications WHERE user_id = ?::uuid AND type = CAST(? AS notification_type) ORDER BY created_at DESC LIMIT 1",
+            String.class,
+            key,
+            userId,
+            type
+        );
     }
 
     private int countRows(String table, String eventId) {

@@ -1,5 +1,6 @@
 package com.plans.backend.api.users;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plans.backend.api.auth.AuthenticatedUser;
 import com.plans.backend.api.error.ApiException;
 import com.plans.backend.persistence.SqlRows;
@@ -7,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,12 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UserController.class);
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]{1,50}$");
 
     private final JdbcClient jdbc;
+    private final ObjectMapper objectMapper;
 
-    public UserController(JdbcClient jdbc) {
+    public UserController(JdbcClient jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/me")
@@ -147,6 +153,7 @@ public class UserController {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Cannot add yourself as friend");
         }
         ensureUserExists(friendId);
+        Map<String, Object> me = findRequiredUser(userId);
 
         Map<String, Object> existing = friendshipBetween(userId, friendId);
         if (existing != null) {
@@ -165,6 +172,12 @@ public class UserController {
                 .stream()
                 .findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "No pending request from this user"));
+            insertNotification(requesterId, "friend_accepted", Map.of(
+                "friendship_id", updated.get("id"),
+                "accepter_id", userId,
+                "accepter_name", me.get("name"),
+                "accepter_username", me.get("username")
+            ), "failed to insert friend_accepted notification (auto-accept)");
             return ResponseEntity.ok(Map.of("friendship", SqlRows.normalize(updated)));
         }
 
@@ -182,6 +195,12 @@ public class UserController {
             .stream()
             .findFirst()
             .orElseThrow();
+        insertNotification(friendId, "friend_request", Map.of(
+            "friendship_id", friendship.get("id"),
+            "requester_id", userId,
+            "requester_name", me.get("name"),
+            "requester_username", me.get("username")
+        ), "failed to insert friend_request notification");
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("friendship", SqlRows.normalize(friendship)));
     }
 
@@ -226,6 +245,13 @@ public class UserController {
             .stream()
             .findFirst()
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "No pending request from this user"));
+        Map<String, Object> me = findRequiredUser(authenticatedUser.id());
+        insertNotification(friendId, "friend_accepted", Map.of(
+            "friendship_id", updated.get("id"),
+            "accepter_id", authenticatedUser.id(),
+            "accepter_name", me.get("name"),
+            "accepter_username", me.get("username")
+        ), "failed to insert friend_accepted notification");
         return ResponseEntity.ok(Map.of("friendship", SqlRows.normalize(updated)));
     }
 
@@ -347,6 +373,23 @@ public class UserController {
             "message", message,
             "friendship", SqlRows.normalize(friendship)
         ));
+    }
+
+    private void insertNotification(UUID userId, String type, Map<String, Object> payload, String logMessage) {
+        try {
+            jdbc.sql(
+                    """
+                    INSERT INTO notifications (user_id, type, payload)
+                    VALUES (:userId, CAST(:type AS notification_type), CAST(:payload AS jsonb))
+                    """
+                )
+                .param("userId", userId)
+                .param("type", type)
+                .param("payload", objectMapper.writeValueAsString(payload))
+                .update();
+        } catch (Exception exception) {
+            LOGGER.error(logMessage, exception);
+        }
     }
 
     private String actionFrom(String action, Map<String, Object> body) {
