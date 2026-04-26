@@ -1,21 +1,31 @@
 # backend-spring
 
-Spring Boot scaffold for the future Java backend migration.
+Spring Boot backend migration target. Fastify remains canonical until full
+Spring parity and switchover are complete.
 
-## Scope
-
-Current scope:
+## Requirements
 
 - Java 21.
-- Spring Boot 3.x.
-- Gradle wrapper as the single build tool.
-- `GET /api/health` with the current Fastify response shape: `{"status":"ok"}`.
-- Global error envelope foundation: `{"code":"...", "message":"..."}`.
-- JDBC DB layer with PostgreSQL driver.
-- Flyway controlled migrations copied from `contracts/mvp/db/001_init.sql` and mirrored from `backend/src/db/migrate.ts`.
-- Seed parity SQL for current Fastify dev seed.
-- No frontend, contract, or existing `backend/` deletion/rewrite.
-- Realtime remains a future phase and must keep the raw JSON WebSocket protocol at `/api/ws`; do not introduce STOMP.
+- PostgreSQL 17 for local/manual smoke runs.
+- Gradle wrapper as the build tool.
+
+## Current parity coverage
+
+- Scaffold + Flyway/seed.
+- Auth + read-only discovery.
+- User/friend/event write.
+- Plans + invitations + notifications.
+- Share-link endpoints:
+  - `GET /api/plans/by-token/:token`
+  - `POST /api/plans/by-token/:token/join`
+
+## Not yet covered
+
+- Proposals + voting.
+- Finalize/unfinalize + repeat.
+- Plan messages.
+- Realtime WebSocket behavior.
+- Content ops.
 
 ## Package structure
 
@@ -32,12 +42,21 @@ Future slices should use this structure:
 
 ## Commands
 
+From the repo root:
+
 ```bash
-./gradlew test
-./gradlew bootRun
+cd backend-spring && ./gradlew test
 ```
 
-The app reads `PORT` and defaults to `3001`, matching the current backend.
+Local run on Spring `:3001`:
+
+```bash
+cd backend-spring
+PORT=3001 ./gradlew bootRun
+```
+
+The app reads `PORT` and defaults to `3001`, matching the current Fastify
+backend.
 
 Database config uses:
 
@@ -51,6 +70,25 @@ Spring Boot runs Flyway automatically from `src/main/resources/db/migration`. De
 
 Current Flyway migrations are intended for a fresh Spring-managed database. Connecting this Spring app to an existing Fastify-managed database requires a separate baseline-on-migrate/manual baseline plan before enabling Flyway against that database.
 
+## Local smoke outline
+
+For manual Spring smoke testing, use a fresh local PostgreSQL 17 database, start
+Spring on `:3001`, and exercise the relevant parity slice through HTTP.
+
+Typical smoke steps:
+
+1. Prepare a fresh `plans` database and apply Spring Flyway migrations.
+2. Load dev seed data from `src/main/resources/db/seed/R__dev_seed.sql`.
+3. Start Spring with `PORT=3001 ./gradlew bootRun`.
+4. Verify `GET /api/health`.
+5. Verify OTP auth with dev code `1111`.
+6. Exercise only the endpoints in the current parity slice.
+
 ## Schema rule
 
 Do not use Hibernate to generate database schema. `spring.jpa.hibernate.ddl-auto=none` is pinned in config; future DB work must mirror `contracts/mvp/db/001_init.sql` and idempotent migrations from `backend/src/db/migrate.ts`.
+
+## Migration boundary
+
+Do not change `fest-app/`, `contracts/`, or the old `backend/` as part of
+Spring-only migration slices unless a later task explicitly expands scope.

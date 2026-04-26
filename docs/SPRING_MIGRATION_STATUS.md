@@ -4,41 +4,45 @@
 
 ## Current status
 
-This checkpoint records the Spring migration state at the Spring scaffold +
-DB/Flyway/seed parity milestone:
+Spring migration work is progressing in small parity checkpoints. Fastify remains
+the canonical backend until Spring reaches full parity and the production
+switchover is explicitly completed.
 
-- `backend-spring/` exists as a Spring Boot scaffold with Java 21, Gradle wrapper,
-  PostgreSQL datasource config, health endpoint, shared error envelope handling,
-  and snake_case JSON output.
-- DB/Flyway/seed parity is in place for the current MVP schema on a fresh
-  Spring-managed PostgreSQL database.
-- The checkpoint is limited to Spring infrastructure, DB migrations, and dev
-  seed verification.
+Completed Spring parity checkpoints:
+
+- Scaffold + Flyway/seed:
+  - `backend-spring/` Spring Boot scaffold with Java 21 and Gradle wrapper.
+  - PostgreSQL datasource config, Flyway migrations, dev seed parity, health
+    endpoint, shared error envelopes, and snake_case JSON output.
+- Auth + read-only discovery:
+  - OTP auth, refresh/me endpoints, user/friends read APIs, event/venue/search
+    discovery reads.
+- User/friend/event write:
+  - User profile writes, friend request/accept/remove flows, event interest/save
+    writes and related notification behavior.
+- Plans + invitations + notifications:
+  - Core plan list/create/detail/lifecycle endpoints, participant list/update/
+    remove/invite, invitation list/accept/decline, notification list/read/read-all.
+- Share-link endpoints:
+  - `GET /api/plans/by-token/:token`.
+  - `POST /api/plans/by-token/:token/join`.
 
 This document is a status checkpoint only. It does not introduce new API
 implementation work.
 
-## PR #1: Spring DB/Flyway/seed checkpoint
+## Still pending Spring parity
 
-Merged PR: <https://github.com/dotagovnos1/Plans/pull/1>
+The following Fastify-backed areas are not yet fully covered by Spring parity:
 
-PR #1 added the Spring database baseline and verification foundation:
+- Proposals + voting.
+- Finalize/unfinalize + repeat.
+- Plan messages.
+- Realtime WebSocket behavior.
+- Content ops.
+- Full CI and production switchover to Spring.
 
-- Added `backend-spring/` Spring Boot project scaffold and Gradle wrapper.
-- Added Flyway migrations under `backend-spring/src/main/resources/db/migration/`:
-  - `V1__baseline_schema.sql` based on `contracts/mvp/db/001_init.sql`;
-  - `V2__idempotent_fastify_migrations.sql` matching the current Fastify-side
-    idempotent DB migrations.
-- Added Spring DB config that accepts Fastify-style `postgres://...` database
-  URLs, including default PostgreSQL port `5432` when no port is present.
-- Added dev seed support under `backend-spring/src/main/resources/db/seed/` plus
-  `DevSeedRunner`.
-- Added migration/seed tests using Docker/Testcontainers.
-- Fixed review issues in the initial migration branch:
-  - removed explicit top-level `BEGIN`/`COMMIT` from the Flyway migration so
-    Flyway owns transaction boundaries;
-  - made Testcontainers DB settings override ambient `DATABASE_URL` reliably;
-  - removed test ordering dependency from migration tests.
+Do not treat Spring as the canonical backend until these pending areas and the
+switchover are complete.
 
 ## Existing production app was not changed
 
@@ -54,24 +58,37 @@ documentation.
 
 ## Local checks actually run
 
-The following local checks were actually run while preparing PR #1:
+Local Spring verification has been the concrete signal for the completed Spring
+checkpoints:
 
-- For PR #1 DB/Flyway/seed checkpoint:
+- Scaffold + Flyway/seed:
   - `cd backend-spring && ./gradlew test`
   - Result: `BUILD SUCCESSFUL` with Docker/Testcontainers available.
-- PR #1 notes also recorded that GitHub Actions were not running in this fork
-  state, so local Docker/Testcontainers verification was the concrete executed
-  check for that checkpoint.
+- Auth + read-only discovery:
+  - `cd backend-spring && ./gradlew test`
+  - Manual Spring `:3001` smoke for OTP and read-only discovery flows.
+- User/friend/event write:
+  - `cd backend-spring && ./gradlew test`
+  - Manual Spring `:3001` smoke for user, friend, and event write flows.
+- Plans + invitations + notifications:
+  - `cd backend-spring && ./gradlew test`
+  - Manual Spring `:3001` smoke for plans, invitations, notifications, and
+    participant invite flows.
+- Share-link endpoints:
+  - `cd backend-spring && ./gradlew test`
+  - Manual Spring `:3001` smoke for share-token preview, join, repeat join,
+    invalid token, full plan, and lifecycle restrictions.
 
 ## GitHub Actions / Checks status
 
-GitHub Actions workflows were not running in this fork/repo state at the time of
-these checkpoints. If the GitHub Checks page shows `0` checks / `0` workflow
-runs, do not treat that as GitHub CI green.
+GitHub Actions have not provided a reliable Spring CI signal for these Spring
+checkpoints. If the GitHub Checks page shows `0` checks / `0` workflow runs, do
+not treat that as GitHub CI green.
 
-The verification above is local verification plus any Devin Review check shown
-on the PR. A zero-check GitHub Actions page is explicitly not a passing CI
-signal.
+The current workflow configuration is still Fastify/frontend oriented and does
+not run `backend-spring` Gradle tests as the Spring parity gate. Until Spring CI
+is explicitly added and running, the verification above is local verification
+plus any PR review signal shown on the PR.
 
 ## Fresh DB limitation
 
@@ -87,24 +104,3 @@ by this checkpoint and requires a separate baseline strategy, such as:
 
 Do not point the current Spring Flyway flow at a production/existing Fastify DB
 without that separate baseline plan.
-
-## Next step
-
-The next implementation step after the DB/Flyway/seed checkpoint is Spring
-auth + read-only discovery parity, without changing the production frontend,
-contracts, or old Fastify backend.
-
-That parity slice is expected to cover:
-
-- `POST /api/auth/otp/send`
-- `POST /api/auth/otp/verify`
-- `POST /api/auth/refresh`
-- `GET /api/auth/me`
-- `GET /api/users/me`
-- `GET /api/users/:id`
-- `GET /api/users/friends`
-- `GET /api/events`
-- `GET /api/events/:id`
-- `GET /api/venues/:id`
-- `GET /api/venues/:id/events`
-- `GET /api/search/events`
