@@ -916,6 +916,23 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void finalizeValueTextOnlyTimeProposalAvoidsSqlDrivenServerError() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Time text only", participantId);
+        String placeProposalId = createProposal(creatorToken, planId, "place", "Кафе");
+        String timeProposalId = createProposal(creatorToken, planId, "time", "20:00");
+
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + placeProposalId + "\",\"time_proposal_id\":\"" + timeProposalId + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.message").value("Time proposal not found"));
+    }
+
+    @Test
     void repeatErrorsMatchFastifyShapes() throws Exception {
         String creatorToken = login("+79990000000");
         String participantToken = login("+79991111111");
