@@ -933,6 +933,132 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void participantCanListSystemProposalAndUserMessagesInFastifyOrder() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Messages parity", participantId);
+        String placeProposalId = createProposal(creatorToken, planId, "place", "Кафе");
+        String timeProposalId = createProposalWithFields(
+            creatorToken,
+            planId,
+            "time",
+            "2026-07-01T20:00:00+03:00",
+            "\"value_datetime\":\"2026-07-01T20:00:00+03:00\""
+        );
+        mockMvc.perform(post("/api/plans/" + planId + "/finalize")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"place_proposal_id\":\"" + placeProposalId + "\",\"time_proposal_id\":\"" + timeProposalId + "\"}"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/plans/" + planId + "/unfinalize")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk());
+        String response = mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\" Привет всем \",\"client_message_id\":\"msg-1\"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.message.text").value("Привет всем"))
+            .andExpect(jsonPath("$.message.type").value("user"))
+            .andExpect(jsonPath("$.message.client_message_id").value("msg-1"))
+            .andExpect(jsonPath("$.message.sender.phone").value("+79991111111"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String userMessageId = read(response, "/message/id").asText();
+
+        mockMvc.perform(get("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.messages", hasSize(5)))
+            .andExpect(jsonPath("$.messages[0].type").value("proposal_card"))
+            .andExpect(jsonPath("$.messages[0].reference_id").value(placeProposalId))
+            .andExpect(jsonPath("$.messages[1].type").value("proposal_card"))
+            .andExpect(jsonPath("$.messages[1].reference_id").value(timeProposalId))
+            .andExpect(jsonPath("$.messages[2].type").value("system"))
+            .andExpect(jsonPath("$.messages[2].text").value("План подтверждён"))
+            .andExpect(jsonPath("$.messages[3].type").value("system"))
+            .andExpect(jsonPath("$.messages[3].text").value("Подтверждение отменено"))
+            .andExpect(jsonPath("$.messages[4].id").value(userMessageId))
+            .andExpect(jsonPath("$.messages[4].sender.id").value(participantId));
+
+        mockMvc.perform(get("/api/plans/" + planId + "/messages?limit=2")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.messages", hasSize(2)))
+            .andExpect(jsonPath("$.messages[1].id").value(userMessageId));
+    }
+
+    @Test
+    void messageEndpointErrorsAndClientMessageDedupMatchContract() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String outsiderToken = login("+79994444444");
+        String participantId = userId("+79991111111");
+        String planId = createPlan(creatorToken, "Message errors", participantId);
+        String missingPlanId = UUID.randomUUID().toString();
+
+        mockMvc.perform(get("/api/plans/" + missingPlanId + "/messages")
+                .header("Authorization", bearer(creatorToken)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+        mockMvc.perform(post("/api/plans/" + missingPlanId + "/messages")
+                .header("Authorization", bearer(creatorToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"hi\"}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Plan not found"));
+        mockMvc.perform(get("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(outsiderToken)))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.message").value("Only participants can view messages"));
+        mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(outsiderToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"hi\"}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.message").value("Only participants can send messages"));
+        mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"   \"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.message").value("text required"));
+        mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"" + "x".repeat(2001) + "\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("text too long (max 2000)"));
+
+        String first = mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"first\",\"client_message_id\":\"dedup-1\"}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        String firstId = read(first, "/message/id").asText();
+        mockMvc.perform(post("/api/plans/" + planId + "/messages")
+                .header("Authorization", bearer(participantToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"text\":\"second\",\"client_message_id\":\"dedup-1\"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.message.id").value(firstId))
+            .andExpect(jsonPath("$.message.text").value("first"));
+        expectCount(
+            "SELECT COUNT(*) FROM messages WHERE context_id = ?::uuid AND sender_id = ?::uuid AND client_message_id = 'dedup-1'",
+            planId,
+            participantId,
+            1
+        );
+    }
+
+    @Test
     void repeatErrorsMatchFastifyShapes() throws Exception {
         String creatorToken = login("+79990000000");
         String participantToken = login("+79991111111");

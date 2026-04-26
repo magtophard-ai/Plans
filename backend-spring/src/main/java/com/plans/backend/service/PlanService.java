@@ -434,6 +434,77 @@ public class PlanService {
         }
     }
 
+    public Map<String, Object> messages(UUID userId, UUID planId, String before, String limit) {
+        basePlanRequired(planId);
+        requireParticipant(userId, planId, "Only participants can view messages");
+
+        String beforeFilter = before == null || before.isBlank() ? "" : " AND m.created_at < CAST(:before AS timestamptz)";
+        var statement = jdbc.sql(
+                """
+                SELECT m.*,
+                       u.id AS u_id, u.phone AS u_phone, u.name AS u_name, u.username AS u_username,
+                       u.avatar_url AS u_avatar, u.created_at AS u_created
+                FROM messages m
+                JOIN users u ON m.sender_id = u.id
+                WHERE m.context_id = :planId
+                %s
+                ORDER BY m.created_at DESC
+                LIMIT :limit
+                """.formatted(beforeFilter)
+            )
+            .param("planId", planId)
+            .param("limit", Math.min(parseInt(limit, 50), 100));
+        if (!beforeFilter.isEmpty()) {
+            statement = statement.param("before", before);
+        }
+        List<Map<String, Object>> messages = new ArrayList<>(statement.query()
+            .listOfRows()
+            .stream()
+            .map(this::messageRow)
+            .toList());
+        java.util.Collections.reverse(messages);
+        return Map.of("messages", messages);
+    }
+
+    @Transactional
+    public Map<String, Object> createMessage(UUID userId, UUID planId, Map<String, Object> body) {
+        String text = optionalString(body.get("text"));
+        if (text == null || text.trim().isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "text required");
+        }
+        if (text.length() > 2000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "text too long (max 2000)");
+        }
+
+        basePlanRequired(planId);
+        requireParticipant(userId, planId, "Only participants can send messages");
+
+        String clientMessageId = optionalString(body.get("client_message_id"));
+        if (clientMessageId != null && clientMessageId.isBlank()) {
+            clientMessageId = null;
+        }
+        if (clientMessageId != null) {
+            Map<String, Object> existing = messageByClientId(planId, userId, clientMessageId);
+            if (existing != null) {
+                return Map.of("message", existing);
+            }
+        }
+        Map<String, Object> message = jdbc.sql(
+                """
+                INSERT INTO messages (context_type, context_id, sender_id, text, type, client_message_id)
+                VALUES ('plan', :planId, :userId, :text, 'user', :clientMessageId)
+                RETURNING *
+                """
+            )
+            .param("planId", planId)
+            .param("userId", userId)
+            .param("text", text.trim())
+            .param("clientMessageId", clientMessageId)
+            .query()
+            .singleRow();
+        return Map.of("message", messageById(UUID.fromString(message.get("id").toString())));
+    }
+
 
     @Transactional
     public Map<String, Object> finalizePlan(UUID userId, UUID planId, Map<String, Object> body) {
@@ -1030,6 +1101,72 @@ public class PlanService {
             .findFirst()
             .map(SqlRows::normalize)
             .orElse(null);
+    }
+
+    private Map<String, Object> messageById(UUID messageId) {
+        Map<String, Object> row = jdbc.sql(
+                """
+                SELECT m.*,
+                       u.id AS u_id, u.phone AS u_phone, u.name AS u_name, u.username AS u_username,
+                       u.avatar_url AS u_avatar, u.created_at AS u_created
+                FROM messages m
+                JOIN users u ON m.sender_id = u.id
+                WHERE m.id = :messageId
+                """
+            )
+            .param("messageId", messageId)
+            .query()
+            .singleRow();
+        return messageRow(row);
+    }
+
+    private Map<String, Object> messageByClientId(UUID planId, UUID senderId, String clientMessageId) {
+        return jdbc.sql(
+                """
+                SELECT m.*,
+                       u.id AS u_id, u.phone AS u_phone, u.name AS u_name, u.username AS u_username,
+                       u.avatar_url AS u_avatar, u.created_at AS u_created
+                FROM messages m
+                JOIN users u ON m.sender_id = u.id
+                WHERE m.context_id = :planId
+                  AND m.sender_id = :senderId
+                  AND m.client_message_id = :clientMessageId
+                ORDER BY m.created_at ASC
+                LIMIT 1
+                """
+            )
+            .param("planId", planId)
+            .param("senderId", senderId)
+            .param("clientMessageId", clientMessageId)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .map(this::messageRow)
+            .orElse(null);
+    }
+
+    private Map<String, Object> messageRow(Map<String, Object> row) {
+        Map<String, Object> normalized = SqlRows.normalize(row);
+        LinkedHashMap<String, Object> message = new LinkedHashMap<>();
+        message.put("id", normalized.get("id"));
+        message.put("context_type", normalized.get("context_type"));
+        message.put("context_id", normalized.get("context_id"));
+        message.put("sender_id", normalized.get("sender_id"));
+        message.put("text", normalized.get("text"));
+        message.put("type", normalized.get("type"));
+        message.put("reference_id", normalized.get("reference_id"));
+        message.put("client_message_id", normalized.get("client_message_id"));
+        message.put("created_at", normalized.get("created_at"));
+        LinkedHashMap<String, Object> sender = new LinkedHashMap<>();
+        sender.put("id", normalized.get("u_id"));
+        sender.put("phone", normalized.get("u_phone"));
+        sender.put("name", normalized.get("u_name"));
+        sender.put("username", normalized.get("u_username"));
+        sender.put("avatar_url", normalized.get("u_avatar"));
+        sender.put("created_at", normalized.get("u_created"));
+        message.put("sender", sender);
+        return message;
     }
 
     private void validateProposalType(String type) {

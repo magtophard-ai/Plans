@@ -101,6 +101,27 @@ public class PlanController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/{planId}/messages")
+    Map<String, Object> messages(
+        AuthenticatedUser authenticatedUser,
+        @PathVariable UUID planId,
+        @RequestParam(required = false) String before,
+        @RequestParam(defaultValue = "50") String limit
+    ) {
+        return planService.messages(authenticatedUser.id(), planId, before, limit);
+    }
+
+    @PostMapping("/{planId}/messages")
+    ResponseEntity<Map<String, Object>> createMessage(
+        AuthenticatedUser authenticatedUser,
+        @PathVariable UUID planId,
+        @RequestBody(required = false) Map<String, Object> body
+    ) {
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .body(planService.createMessage(authenticatedUser.id(), planId, body == null ? Map.of() : body));
+    }
+
     @PostMapping("/{id}/finalize")
     Map<String, Object> finalizePlan(
         AuthenticatedUser authenticatedUser,
