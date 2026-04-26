@@ -655,6 +655,39 @@ class PlansInvitationsNotificationsParityIntegrationTest {
     }
 
     @Test
+    void unvoteIsScopedToProposalPlan() throws Exception {
+        String creatorToken = login("+79990000000");
+        String participantToken = login("+79991111111");
+        String participantId = userId("+79991111111");
+        String planAId = createPlan(creatorToken, "Plan A cross unvote", participantId);
+        String planBId = createPlan(creatorToken, "Plan B cross unvote", participantId);
+        String planBProposalId = createProposal(creatorToken, planBId, "place", "Plan B place");
+
+        mockMvc.perform(post("/api/plans/" + planBId + "/proposals/" + planBProposalId + "/vote")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isOk());
+        expectCount(
+            "SELECT COUNT(*) FROM votes WHERE proposal_id = ?::uuid AND voter_id = ?::uuid",
+            planBProposalId,
+            participantId,
+            1
+        );
+
+        mockMvc.perform(delete("/api/plans/" + planAId + "/proposals/" + planBProposalId + "/vote")
+                .header("Authorization", bearer(participantToken)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+            .andExpect(jsonPath("$.message").value("Vote not found"));
+
+        expectCount(
+            "SELECT COUNT(*) FROM votes WHERE proposal_id = ?::uuid AND voter_id = ?::uuid",
+            planBProposalId,
+            participantId,
+            1
+        );
+    }
+
+    @Test
     void unauthorizedNotFoundAndErrorEnvelopesMatchFastify() throws Exception {
         String token = login("+79990000000");
 

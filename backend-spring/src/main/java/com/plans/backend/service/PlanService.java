@@ -415,7 +415,17 @@ public class PlanService {
     public void unvote(UUID userId, UUID planId, UUID proposalId) {
         basePlanRequired(planId);
         requireParticipant(userId, planId, "Only participants can vote");
-        int deleted = jdbc.sql("DELETE FROM votes WHERE proposal_id = :proposalId AND voter_id = :userId")
+        int deleted = jdbc.sql(
+                """
+                DELETE FROM votes v
+                USING plan_proposals pp
+                WHERE v.proposal_id = pp.id
+                  AND pp.plan_id = :planId
+                  AND v.proposal_id = :proposalId
+                  AND v.voter_id = :userId
+                """
+            )
+            .param("planId", planId)
             .param("proposalId", proposalId)
             .param("userId", userId)
             .update();
