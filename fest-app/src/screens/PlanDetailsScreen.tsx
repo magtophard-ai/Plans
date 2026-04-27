@@ -434,9 +434,14 @@ const DetailsTab = ({ plan, isCreator, myStatus, onSetStatus, onVote, onUnvote, 
               </Pressable>
             )}
             {plan.lifecycle_state === 'finalized' && (
-              <Pressable style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)} activeScale={0.96}>
-                <Text style={s.unfinalizeBtnText}>Отменить подтверждение</Text>
-              </Pressable>
+              <>
+                <Pressable style={s.completeBtn} onPress={() => onComplete(plan.id)} activeScale={0.96}>
+                  <Text style={s.completeBtnText}>Завершить план</Text>
+                </Pressable>
+                <Pressable style={s.unfinalizeBtn} onPress={() => onUnfinalize(plan.id)} activeScale={0.96}>
+                  <Text style={s.unfinalizeBtnText}>Отменить подтверждение</Text>
+                </Pressable>
+              </>
             )}
             {plan.lifecycle_state === 'active' && !(plan.place_status === 'confirmed' && plan.time_status === 'confirmed') && (
               <Pressable style={s.completeBtn} onPress={() => onComplete(plan.id)} activeScale={0.96}>

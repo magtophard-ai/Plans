@@ -22,6 +22,7 @@ interface Props {
   linkedEventTitle?: string;
   linkedEventVenue?: string;
   linkedEventTime?: string;
+  linkedEventStartsAt?: string;
   onDone: (newPlanId: string) => void;
   preselectedGroupIds?: string[];
 }
@@ -45,7 +46,7 @@ const ACTIVITY_ICONS: Record<ActivityType, string> = {
   other: '✨',
 };
 
-export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVenue, linkedEventTime, onDone, preselectedGroupIds }: Props) => {
+export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVenue, linkedEventTime, linkedEventStartsAt, onDone, preselectedGroupIds }: Props) => {
   const user = useAuthStore((s) => s.user);
   const apiCreatePlan = usePlansStore((s) => s.apiCreatePlan);
   const planError = usePlansStore((s) => s.operationErrors.create ?? null);
@@ -124,6 +125,8 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
       return;
     }
 
+    const confirmedTime = isFromEvent ? linkedEventStartsAt?.trim() : timeText.trim();
+
     setSubmitting(true);
     clearPlanError();
     try {
@@ -132,7 +135,7 @@ export const CreatePlanForm = ({ linkedEventId, linkedEventTitle, linkedEventVen
         activity_type: activityType,
         linked_event_id: linkedEventId ?? undefined,
         confirmed_place_text: placeText.trim() || undefined,
-        confirmed_time: timeText.trim() || undefined,
+        confirmed_time: confirmedTime || undefined,
         pre_meet_enabled: preMeetEnabled,
         pre_meet_place_text: preMeetEnabled ? preMeetPlace.trim() || undefined : undefined,
         pre_meet_time: preMeetEnabled ? preMeetTime.trim() || undefined : undefined,

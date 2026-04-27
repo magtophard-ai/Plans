@@ -30,6 +30,7 @@ export const CreatePlanFromEventScreen = ({ route }: { route: any }) => {
         linkedEventTitle={event.title}
         linkedEventVenue={event.venue?.name}
         linkedEventTime={formatDateShort(event.starts_at)}
+        linkedEventStartsAt={event.starts_at}
         onDone={(_planId: string) => {
           (navigation as any).navigate('PlansTab', {
             screen: 'PlanDetails',

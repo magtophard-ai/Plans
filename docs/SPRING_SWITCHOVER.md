@@ -221,6 +221,17 @@ seeded Postgres.
 
 Fastify smoke/realtime/content-ops CI jobs are intentionally preserved.
 
+## Manual Expo/mobile validation
+
+See [`SPRING_MOBILE_VALIDATION.md`](./SPRING_MOBILE_VALIDATION.md) for the
+2026-04-27 Spring public-backend validation report.
+
+Status: the available Expo web flow against a public Spring URL passed after
+minimal contract/runtime fixes. Native Expo Go tunnel validation was not
+completed because the Expo/ngrok tunnel failed in the VM, so a strict real-device
+Expo Go pass should be rerun before declaring Spring canonical if that is a hard
+requirement.
+
 ## Criteria for the next PR to declare Spring canonical default
 
 - `fullSpringSmokeTest` is green in CI.

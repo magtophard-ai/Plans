@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -104,6 +106,22 @@ class AuthDiscoveryParityIntegrationTest {
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.user.username").value("me"));
+    }
+
+    @Test
+    void authCorsPreflightAllowsPublicExpoOrigins() throws Exception {
+        String origin = "https://travelers-commentary-quarters-mary.trycloudflare.com";
+
+        mockMvc.perform(options("/api/auth/otp/send")
+                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").doesNotExist())
+            .andExpect(result -> assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+                .isEqualTo(origin))
+            .andExpect(result -> assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS))
+                .containsIgnoringCase("content-type"));
     }
 
     @Test
