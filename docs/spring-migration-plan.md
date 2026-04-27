@@ -1,12 +1,14 @@
 # Spring Boot Migration Plan
 
-Цель миграции: добавить новый backend в `backend-spring/` и поэтапно довести его до совместимости с текущим Fastify/TypeScript backend без регрессий для существующего Expo frontend.
+This is a historical migration plan. Spring Boot in `backend-spring/` is now the current canonical backend; Fastify in `backend/` is archived legacy code for history, rollback drills, and legacy parity audits only.
+
+Цель миграции была: добавить новый backend в `backend-spring/` и поэтапно довести его до совместимости с legacy Fastify/TypeScript backend без регрессий для существующего Expo frontend.
 
 ## Guardrails
 
-- Первый этап не удаляет и не переписывает `backend/`.
+- Миграция не удаляла и не переписывала `backend/`; он сохранён как archived legacy.
 - Frontend, Zustand stores, API client и contracts остаются неизменными, если audit конкретного slice не докажет обратное.
-- Spring Boot backend живёт только в `backend-spring/`.
+- Spring Boot backend живёт в `backend-spring/` и является текущим canonical backend.
 - Сохраняются `/api` prefix, endpoint paths, request/response envelopes, HTTP statuses, error bodies, JWT behavior и WebSocket protocol.
 - REST остаётся source of truth; WebSocket остаётся push-only.
 - Hibernate `ddl-auto` не используется для генерации схемы. Схема должна идти из `contracts/mvp/db/001_init.sql` плюс текущие idempotent migrations из `backend/src/db/migrate.ts`.
@@ -24,10 +26,8 @@ Recommended Spring stack:
 
 - Java 21, Spring Boot 3.x, Gradle or Maven wrapper committed under `backend-spring/`.
 - `spring-boot-starter-web`, `spring-boot-starter-websocket`, `spring-boot-starter-security`, `spring-boot-starter-validation`.
-- `spring-boot-starter-jdbc` or jOOQ over raw SQL first. Avoid JPA schema management during migration; if JPA is introduced later, set `spring.jpa.hibernate.ddl-auto=none`.
-- PostgreSQL driver and explicit migrations. Prefer Flyway with copied/translated SQL:
-  - `V1__001_init.sql` equivalent to `contracts/mvp/db/001_init.sql`;
-  - follow-up idempotent migrations matching `backend/src/db/migrate.ts`.
+- `spring-boot-starter-jdbc` or jOOQ over raw SQL first. Avoid JPA schema management; if JPA is introduced later, set `spring.jpa.hibernate.ddl-auto=none`.
+- PostgreSQL driver and explicit Flyway migrations under `backend-spring/src/main/resources/db/migration`, keeping `contracts/mvp/db/001_init.sql` as the baseline contract reference.
 - DTOs should preserve snake_case JSON. Use `@JsonProperty` or a global snake_case naming strategy, but verify all envelopes against frontend smoke tests.
 - JWT should use HS256 and the same `JWT_SECRET`; access token payload includes `userId`, refresh token additionally includes `type: "refresh"`.
 
@@ -35,7 +35,7 @@ Recommended Spring stack:
 
 Complexity scale: Low = direct CRUD/read, Medium = joins/validation/notifications, High = transactional lifecycle/realtime/parity risk.
 
-| Method | Path | Current TS file | Future Spring controller/service | Complexity |
+| Method | Path | Legacy TS file | Spring controller/service | Complexity |
 |---|---|---|---|---|
 | GET | `/api/health` | `backend/src/index.ts` | `HealthController` | Low |
 | POST | `/api/auth/otp/send` | `backend/src/routes/auth.ts`, `backend/src/auth/otp.ts` | `AuthController` + `OtpService` | Medium |
@@ -94,7 +94,7 @@ Complexity scale: Low = direct CRUD/read, Medium = joins/validation/notification
 
 Notes:
 
-- `backend/README.md` omits newer endpoints such as `/api/users/search`, `/api/plans/by-token/:token`, plan proposals/votes/messages, and finalize/unfinalize/repeat details; Spring implementation should follow `contracts/mvp/api/openapi.yaml` plus current TS behavior.
+- `backend/README.md` documents the archived legacy implementation and may omit newer endpoints such as `/api/users/search`, `/api/plans/by-token/:token`, plan proposals/votes/messages, and finalize/unfinalize/repeat details. Active Spring work should follow `contracts/mvp/api/openapi.yaml` plus the canonical Spring implementation.
 - Fastify route param names differ from OpenAPI in a few places (`:proposalId` vs `{pid}`); URLs must match frontend paths, not Java method variable names.
 
 ## DB schema inventory
@@ -115,7 +115,7 @@ Notes:
 | `group_role` | `member` | `group_members.role` |
 | `invitation_type` | `plan`, `group` | `invitations.type`, invitation target resolution |
 | `invitation_status` | `pending`, `accepted`, `declined` | `invitations.status`, invitation list/respond |
-| `notification_type` | `plan_invite`, `group_invite`, `proposal_created`, `plan_finalized`, `plan_unfinalized`, `event_time_changed`, `event_cancelled`, `plan_reminder`, `plan_completed`, `friend_request`, `friend_accepted`, `plan_join_via_link` | `notifications.type`, `NotificationService`; current one source is `backend/src/db/notifications.ts` |
+| `notification_type` | `plan_invite`, `group_invite`, `proposal_created`, `plan_finalized`, `plan_unfinalized`, `event_time_changed`, `event_cancelled`, `plan_reminder`, `plan_completed`, `friend_request`, `friend_accepted`, `plan_join_via_link` | `notifications.type`, Spring `NotificationService` |
 | `message_type` | `user`, `system`, `proposal_card` | `messages.type`, chat and proposal-card messages |
 | `message_context` | `plan` | `messages.context_type` |
 
@@ -140,7 +140,7 @@ Notes:
 | `messages` | `001_init.sql` + `client_message_id` migration | Plan chat, system messages, proposal cards, optimistic message reconciliation |
 | `event_ingestions` | `migrate.ts` | Content Ops import/list/show/publish/update/sync/cancel |
 
-Additive migrations from `backend/src/db/migrate.ts` that Spring must preserve:
+Historical additive migrations from the legacy Fastify path that Spring preserves through Flyway:
 
 - `messages.client_message_id text`.
 - `event_ingestions` table with states `imported`, `duplicate`, `published`, `cancelled` and indexes:
@@ -191,7 +191,7 @@ Frontend `api/client.ts` throws on non-2xx with `error.status`, `error.code`, `e
 
 ### Error codes
 
-| Code | HTTP status | Current sources/meaning |
+| Code | HTTP status | Meaning |
 |---|---:|---|
 | `INVALID_PHONE` | 400 | OTP phone normalization failed |
 | `INVALID_INPUT` | 400 | Generic request validation failures across auth/users/groups/plans |
@@ -213,12 +213,12 @@ Frontend `api/client.ts` throws on non-2xx with `error.status`, `error.code`, `e
 | `ALREADY_MEMBER` | 409 | Group member already exists |
 | `ALREADY_INVITED` | 409 | Pending group invitation already exists |
 | `OTP_LOCKED` | 429 | Too many invalid OTP attempts |
-| `RATE_LIMITED` | 429 | Fastify rate-limit global error handler |
+| `RATE_LIMITED` | 429 | Global rate-limit error envelope |
 | `INTERNAL_ERROR` | 500 | Unhandled backend error |
 
 Client-only code:
 
-- `OFFLINE` is generated in `fest-app/src/api/client.ts` before fetch for mutating calls when browser offline; Spring must not emit this code.
+- `OFFLINE` is generated in `fest-app/src/api/client.ts` before fetch for mutating calls when browser offline; the backend must not emit this code.
 
 ## Realtime channels and events
 
@@ -269,18 +269,17 @@ Important: REST remains the source of truth. Frontend refetches plans/messages a
 
 ## Content Ops commands
 
-Current entrypoint: `backend/src/scripts/contentOps.ts`, service: `backend/src/services/contentOps.ts`. Spring should provide equivalent CLI/application runner in `backend-spring/` before switching production Content Ops.
+Current canonical entrypoint: Spring CLI/application runner in `backend-spring/`. The legacy Fastify entrypoint (`backend/src/scripts/contentOps.ts`) remains archived for reference.
 
-| Command | Current npm script | Required args/options | Behavior |
+| Command | Spring command | Required args/options | Behavior |
 |---|---|---|---|
-| `import` | `npm run ops:import` | `--file <json>`, optional `--source-url <url>` | Validates normalized JSON and writes/updates `event_ingestions`; does not publish public event |
-| `list` | `npm run ops:list` | optional `--state imported|duplicate|published|cancelled` | Lists ingestion queue summary ordered by update time |
-| `show` | `npm run ops:content -- show` | `--ingestion-id <id>` | Prints full ingestion |
-| `publish` | `npm run ops:publish` | `--ingestion-id <id>`, optional `--venue-id <id>`, `--force-link-event-id <id>` | Creates/updates public `events`, resolves/reuses/autocreates venue, links ingestion |
-| `update` | `npm run ops:update` | `--ingestion-id <id>` | Updates already-published/linked event; fails if event is not published yet |
-| `sync` | `npm run ops:sync` | `--file <json>`, optional `--source-url <url>` | Imports then updates existing published event; skips with message if not published yet |
-| `cancel` | `npm run ops:cancel` | `--event-id <id> --reason <text>` | Marks event cancelled, updates linked ingestions, emits `event_cancelled` notifications |
-| `content` | `npm run ops:content` | command passthrough | Shared entrypoint for all commands |
+| `import` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import ..."` | `--file <json>`, optional `--source-url <url>` | Validates normalized JSON and writes/updates `event_ingestions`; does not publish public event |
+| `list` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="list ..."` | optional `--state imported|duplicate|published|cancelled` | Lists ingestion queue summary ordered by update time |
+| `show` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="show ..."` | `--ingestion-id <id>` | Prints full ingestion |
+| `publish` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="publish ..."` | `--ingestion-id <id>`, optional `--venue-id <id>`, `--force-link-event-id <id>` | Creates/updates public `events`, resolves/reuses/autocreates venue, links ingestion |
+| `update` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="update ..."` | `--ingestion-id <id>` | Updates already-published/linked event; fails if event is not published yet |
+| `sync` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="sync ..."` | `--file <json>`, optional `--source-url <url>` | Imports then updates existing published event; skips with message if not published yet |
+| `cancel` | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="cancel ..."` | `--event-id <id> --reason <text>` | Marks event cancelled, updates linked ingestions, emits `event_cancelled` notifications |
 
 Normalized payload required fields:
 
@@ -296,7 +295,7 @@ Parity requirements:
 - Public lists (`/events`, `/search/events`, `/venues/:id/events`) show only `events.status='published'`; `GET /events/:id` still reads cancelled events.
 - Time updates notify linked plan participants with `event_time_changed`; cancellation emits `event_cancelled`.
 
-## Recommended PR order
+## Historical PR order
 
 1. **Docs/audit PR**: this plan only. No production code changes.
 2. **Spring scaffold PR**: create `backend-spring/`, build wrapper, health endpoint under `/api/health`, config for port 3001-equivalent, CI job that compiles/tests Spring. No Fastify deletion.
@@ -309,14 +308,14 @@ Parity requirements:
 9. **Lifecycle PR**: finalize/unfinalize/cancel/complete/repeat, system messages, notifications, all REST smoke coverage.
 10. **WebSocket PR**: `/api/ws` protocol, auth/subscribe/ping-pong, realtime event publishing, reconnect smoke parity.
 11. **Content Ops PR**: Java CLI equivalent for import/list/show/publish/update/sync/cancel plus content-ops smoke parity.
-12. **Switch/dual-run PR**: add documented run mode to point Expo to Spring backend, run full backend REST/realtime/content-ops smoke and frontend typecheck. Only after this consider deprecating Fastify in a later explicit PR.
+12. **Switch/dual-run PR**: add documented run mode to point Expo to Spring backend, run full backend REST/realtime/content-ops smoke and frontend typecheck. This has since been superseded by Spring becoming canonical and Fastify being archived as legacy.
 
 ## Risks and verification
 
 | Risk | Why it matters | Verification |
 |---|---|---|
 | JSON snake_case drift | Frontend types and `camelize()` depend on existing snake_case response keys while preserving both styles client-side | Snapshot/contract tests for every success envelope and key names; run frontend stores against Spring |
-| Error envelope/status drift | `api/client.ts` maps `payload.message` and `payload.code` into operation errors | Negative tests for every code in this plan; compare Fastify vs Spring responses |
+| Error envelope/status drift | `api/client.ts` maps `payload.message` and `payload.code` into operation errors | Negative tests for every code in this plan; compare against canonical Spring responses |
 | JWT incompatibility | Existing frontend stores token locally and WS auth sends same JWT | Tests for access token, refresh token, expired/invalid token, WS auth message |
 | PostgreSQL schema drift | Existing data and Content Ops depend on raw schema, enums, indexes, share tokens | Use migrations only; run schema inspection against PostgreSQL 17; never use Hibernate DDL |
 | Transaction semantics drift | Plan creation, invitation accept, finalize/repeat and Content Ops need atomic writes | Integration tests with rollback assertions and concurrent accept over 15-participant cap |
@@ -328,15 +327,14 @@ Parity requirements:
 | Cancelled event visibility drift | Existing plans/notifications must not 404 cancelled event detail | Tests for public lists hiding cancelled events but detail returning cancelled by id |
 | Group/list contract mismatch | OpenAPI `GroupListResponse` mentions `member_count`, current TS returns groups with `members` | Preserve current TS/frontend behavior first; document any OpenAPI correction in a separate explicit PR |
 | Observability differences | Current backend initializes Sentry/PostHog and tracks core-loop events | Keep non-blocking analytics wrappers; tests should not require external analytics availability |
-| Rate-limit behavior drift | OTP endpoints currently have specific limits and global `RATE_LIMITED` envelope | Add auth rate-limit tests or explicitly defer until parity PR if using Spring filter/interceptor |
+| Rate-limit behavior drift | OTP endpoints have specific limits and global `RATE_LIMITED` envelope | Add auth rate-limit tests if behavior changes |
 
-## Minimum parity gates per implementation PR
+## Current canonical gates
 
-- Spring unit/integration tests for the slice.
-- Backend compile/type gate for both old and new backend while both exist.
-- Existing Fastify CI remains green until final switch.
-- For migrated endpoints, run the existing smoke script against Spring whenever paths are implemented enough:
-  - REST: `backend/src/tests/e2e-smoke.ts`;
-  - realtime: `backend/src/tests/rt2-smoke.ts`;
-  - Content Ops: `backend/src/tests/content-ops-smoke.ts` or Java equivalent if direct TS service imports no longer apply.
-- Frontend `npx tsc --noEmit` should remain unchanged and green because frontend contracts must not change.
+- `cd backend-spring && ./gradlew test`.
+- `cd backend-spring && ./gradlew coreSmokeTest`.
+- `cd backend-spring && ./gradlew realtimeSmokeTest`.
+- `cd backend-spring && ./gradlew contentOpsSmokeTest`.
+- `cd backend-spring && ./gradlew fullSpringSmokeTest`.
+- `cd fest-app && npx tsc --noEmit` should remain green because frontend contracts must not change.
+- Archived legacy Fastify CI should remain green while the archive stays in the repo, but active backend work targets Spring.

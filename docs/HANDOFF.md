@@ -11,10 +11,39 @@ down the file; the top section is the most recent checkpoint.
 
 ---
 
-## Checkpoint — after Content Ops v1
+## Checkpoint — Spring canonical backend
+
+Spring Boot in `backend-spring/` is now the current canonical backend. Fastify remains in `backend/` as archived legacy code for history, rollback drills, and legacy parity audits only. New backend changes, runbooks, smoke tests, and content ops work should target Spring.
+
+Use `docs/SPRING_SWITCHOVER.md` for the canonical backend runbook and `docs/SPRING_MIGRATION_STATUS.md` for the migration/archive note.
+
+### Canonical backend commands
+
+```bash
+cd backend-spring
+PORT=3001 ./gradlew bootRun
+./gradlew test
+./gradlew coreSmokeTest
+./gradlew realtimeSmokeTest
+./gradlew contentOpsSmokeTest
+./gradlew fullSpringSmokeTest
+```
+
+Frontend env for local Spring:
+
+```bash
+export EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api
+export EXPO_PUBLIC_WS_BASE_URL=ws://localhost:3001/api/ws
+```
+
+For tunnels/mobile use `EXPO_PUBLIC_API_BASE_URL=https://<backend-host>/api` and `EXPO_PUBLIC_WS_BASE_URL=wss://<backend-host>/api/ws`.
+
+---
+
+## Previous checkpoint — after Content Ops v1
 
 Content Ops / Real Events Pipeline v1 is implemented and merged into
-`master`. This is a repo checkpoint, not a new feature scope: the next agent
+`master`. This is a historical repo checkpoint, not a new feature scope: the next agent
 should treat CLI-only content ops as shipped infrastructure and should avoid
 starting parser bots, admin UI, or venue self-serve before an operator trial.
 
@@ -56,17 +85,15 @@ starting parser bots, admin UI, or venue self-serve before an operator trial.
 
 ### Content Ops commands
 
-Run from `backend/` after `npm install --legacy-peer-deps`, `npm run db:migrate`,
-`npm run db:seed`, and backend env setup.
+Run from `backend-spring/` with Spring's CLI runner after backend env setup.
 
 ```bash
-npm run ops:import -- --file <json>
-npm run ops:list -- --state imported|duplicate|published|cancelled
-npm run ops:publish -- --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]
-npm run ops:sync -- --file <json>
-npm run ops:update -- --ingestion-id <id>
-npm run ops:cancel -- --event-id <id> --reason "..."
-npm run ops:content -- <command>
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import --file ../docs/examples/content-ops-event.example.json"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="list --state imported|duplicate|published|cancelled"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="publish --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="sync --file <json>"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="update --ingestion-id <id>"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="cancel --event-id <id> --reason '...'"
 ```
 
 `ops:content` is the shared entrypoint behind the convenience scripts; supported
@@ -79,16 +106,11 @@ Safe synthetic payload example:
 
 1. Prepare one normalized JSON payload per event. Keep it synthetic/manual in
    v1; do not add parser bots or network fetches.
-2. Import: `npm run ops:import -- --file path/to/event.json`.
-3. Inspect queue: `npm run ops:list -- --state imported` (or `duplicate`,
-   `published`, `cancelled`). Use `npm run ops:content -- show --ingestion-id <id>`
-   for one ingestion.
-4. Publish after operator verification:
-   `npm run ops:publish -- --ingestion-id <id> [--venue-id <id>]`.
-5. Sync updates later with `npm run ops:sync -- --file path/to/event.json`.
-   Before publish, `ops:sync` reports skipped/error and does **not** create a
-   public event.
-6. Cancel with `npm run ops:cancel -- --event-id <id> --reason "..."`.
+2. Import: `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import --file path/to/event.json"`.
+3. Inspect queue with `list --state imported` (or `duplicate`, `published`, `cancelled`). Use `show --ingestion-id <id>` for one ingestion.
+4. Publish after operator verification with `publish --ingestion-id <id> [--venue-id <id>]`.
+5. Sync updates later with `sync --file path/to/event.json`. Before publish, `sync` reports skipped/error and does **not** create a public event.
+6. Cancel with `cancel --event-id <id> --reason "..."`.
 
 Operator gotchas:
 
@@ -166,14 +188,8 @@ fresh owner (or forked copy) should know before picking up the next task.
   React Navigation 7 (RootStack → MainTabs → HomeStack / PlansStack).
   `ScreenContainer` wraps every screen (`maxWidth: 600` on web, safe-area
   on native). `theme.spacing` is Platform-adapted — never hardcode padding.
-- **Backend**: Fastify + TypeScript + PostgreSQL 17 (`pg` driver). Single
-  `backend/src/index.ts` entry, route plugins under
-  `backend/src/routes/*.ts`, DB helpers under `backend/src/db/*.ts`.
-- **DB**: `contracts/mvp/db/001_init.sql` is the initial schema; any column
-  added after init must go through `backend/src/db/migrate.ts` as an
-  idempotent `ALTER TABLE … IF NOT EXISTS`. The 12-value `notification_type`
-  enum is derived from `backend/src/db/notifications.ts:NOTIFICATION_TYPES`
-  (one source of truth for typed inserts + enum migration).
+- **Backend**: Spring Boot + Java 21 + PostgreSQL 17 is canonical in `backend-spring/`. Fastify + TypeScript remains archived in `backend/` for history and rollback drills only.
+- **DB**: Spring owns new schema work through Flyway migrations in `backend-spring/src/main/resources/db/migration`. `contracts/mvp/db/001_init.sql` remains the baseline contract reference.
 - **Auth**: phone + OTP. `OTP_CODE` env (defaults to `1111`) is accepted
   for any phone. JWT access token, no refresh rotation in MVP. No real
   SMS provider.
@@ -181,13 +197,7 @@ fresh owner (or forked copy) should know before picking up the next task.
   connect, `subscribe`/`unsubscribe` messages per channel (`user:{userId}`,
   `plan:{planId}`). 11 emitted events (see `CURRENT_STATUS.md`). REST
   remains the only source of truth; WS is push-only.
-- **Notifications**: all server-created (no client insert path). One
-  `insertNotification(type, user_id, payload)` helper in
-  `backend/src/db/notifications.ts` writes the row **and** emits
-  `notification.created` on the recipient's `user:{id}` channel. Adding a
-  new type only requires adding a string literal to `NOTIFICATION_TYPES`
-  plus the four frontend constants (`TYPE_LABELS`, `TYPE_ICONS`,
-  `TYPE_ACCENT`, `PLAN_TYPES` if applicable).
+- **Notifications**: all server-created (no client insert path). Spring writes notification rows and emits `notification.created` on the recipient's `user:{id}` channel. Adding a new type requires the backend enum/migration path plus the frontend constants (`TYPE_LABELS`, `TYPE_ICONS`, `TYPE_ACCENT`, `PLAN_TYPES` if applicable).
 - **Per-op errors**: `plansStore.operationErrors: Partial<Record<PlanOp, string>>`
   (15 ops). No shared global error. `operationErrors.sendMessage`
   auto-clears on connectivity recovery (subscription inside
@@ -204,13 +214,7 @@ fresh owner (or forked copy) should know before picking up the next task.
   result set); chat is `?before=<created_at>` cursor + id-based dedup,
   loading older messages when the user scrolls to the top of the
   inverted `FlatList`.
-- **Tests / CI**: `backend/src/tests/e2e-smoke.ts` (59 checks),
-  `backend/src/tests/rt2-smoke.ts` (17 checks), and
-  `backend/src/tests/content-ops-smoke.ts` are the always-on smoke suites.
-  `.github/workflows/ci.yml` runs five jobs per PR (backend typecheck,
-  frontend typecheck, backend e2e smoke, backend realtime smoke, backend
-  content ops smoke) with a Postgres 17 service. Devin Review is also wired
-  up on every PR. There is no unit-test framework and no lint.
+- **Tests / CI**: Spring canonical gates are `./gradlew test`, `coreSmokeTest`, `realtimeSmokeTest`, `contentOpsSmokeTest`, and `fullSpringSmokeTest` in `backend-spring/`. Frontend typecheck remains `cd fest-app && npx tsc --noEmit`. Legacy Fastify CI jobs stay as archived rollback checks only.
 
 ### Recently merged work (latest PRs on top)
 
@@ -407,15 +411,13 @@ protected by automated gates.
   DEMO_SETUP and CI.
 
 ### CI (historical)
-- `.github/workflows/ci.yml` — four jobs, each on `pull_request` and
-  `push: master`:
-  - `backend typecheck` (`npx tsc --noEmit` in `backend/`)
-  - `frontend typecheck` (`npx tsc --noEmit` in `fest-app/`)
-  - `backend e2e smoke` — Postgres 17 service, migrate, seed, start
-    backend, wait for `/api/health`, run `backend/src/tests/e2e-smoke.ts`
-  - `backend realtime smoke` — same setup, runs `backend/src/tests/rt2-smoke.ts`
+- The pre-Spring workflow had four Fastify/frontend jobs on `pull_request` and `push: master`:
+  - legacy Fastify typecheck (`npx tsc --noEmit` in `backend/`)
+  - frontend typecheck (`npx tsc --noEmit` in `fest-app/`)
+  - legacy Fastify e2e smoke — Postgres 17 service, migrate, seed, start archived backend, wait for `/api/health`, run `backend/src/tests/e2e-smoke.ts`
+  - legacy Fastify realtime smoke — same setup, runs `backend/src/tests/rt2-smoke.ts`
 
-All four are now the merge gate.
+Current CI is documented at the top of this file and in `docs/CURRENT_STATUS.md`; Spring Gradle gates are now canonical.
 
 ---
 
@@ -433,10 +435,7 @@ All four are now the merge gate.
    subscribe target). If you add new `apiCreate*`-style helpers that the
    UI navigates into, verify they unwrap the response envelope before
    returning.
-3. **`messages.client_message_id` migration path.** Any future DB column
-   added in code must be added to `backend/src/db/migrate.ts` (idempotent
-   `ALTER TABLE … IF NOT EXISTS`). `contracts/mvp/db/001_init.sql` is only
-   applied once at init; subsequent columns must go through `migrate.ts`.
+3. **`messages.client_message_id` migration path.** Any future DB column added in code must be added through Spring Flyway migrations under `backend-spring/src/main/resources/db/migration`. `contracts/mvp/db/001_init.sql` remains the baseline contract reference.
 4. **Demo stack is ephemeral.** The cloudflared (`trycloudflare.com`) and
    Expo tunnel (`exp.direct`) URLs die on VM restart. `DEMO_SETUP.md`
    explains how to stand them up again and how to bake the new backend URL
@@ -445,11 +444,7 @@ All four are now the merge gate.
    per IP. The smoke scripts use random per-run phones, but running them
    twice in a row locally still hits the limit; CI is fine because each job
    runs on a fresh runner IP.
-6. **Fastify 400 on bodyless POSTs.** `fest-app/src/api/client.ts` must NOT
-   set `Content-Type: application/json` when `body === undefined`. Fastify
-   rejects any declared-JSON request with an empty body (e.g.
-   `POST /api/plans/by-token/:token/join`). This fix already lives on
-   master — don't revert it.
+6. **Legacy Fastify 400 on bodyless POSTs.** `fest-app/src/api/client.ts` must NOT set `Content-Type: application/json` when `body === undefined`. The archived Fastify implementation rejects any declared-JSON request with an empty body (e.g. `POST /api/plans/by-token/:token/join`). This fix already lives on master — don't revert it.
 
 ---
 
@@ -457,15 +452,11 @@ All four are now the merge gate.
 
 - Postgres — docker container `fest-pg` (`postgres:17`), database `plans`,
   credentials `postgres:postgres`, port `5432`.
-- Backend — default `:3001`. Required envs: `DATABASE_URL`, `JWT_SECRET`
-  (>=32 chars in production), optional `OTP_CODE` (defaults to `1111`),
-  optional `SENTRY_DSN`, optional `POSTHOG_API_KEY`.
-- Expo — default Metro `:8081`. For device testing use `npx expo start --tunnel --go`
-  with `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` in the same
-  shell **before** starting Metro.
-- OTP — code is always `1111` (controlled by the `OTP_CODE` env var; see `backend/.env.example`). No real SMS provider (P0b deferred). `POST /auth/otp/send` returns an empty body `{}` on success (HTTP 200), not `{ok:true}`.
+- Backend — canonical Spring defaults to `:3001`. Required envs: `DATABASE_URL`, `JWT_SECRET` (>=32 chars in production), optional `OTP_CODE` (defaults to `1111`), optional `SENTRY_DSN`, optional `POSTHOG_API_KEY`.
+- Expo — default Metro `:8081`. For device testing use `npx expo start --tunnel --go` with `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` in the same shell **before** starting Metro.
+- OTP — code is always `1111` (controlled by the `OTP_CODE` env var). No real SMS provider (P0b deferred). `POST /auth/otp/send` returns an empty body `{}` on success (HTTP 200), not `{ok:true}`.
 
-Seed users for manual demo testing (from `backend/src/db/seed.ts`):
+Seed users for manual demo testing (from `backend-spring/src/main/resources/db/seed/R__dev_seed.sql`):
 
 | Phone | Name |
 |-------|------|
@@ -486,16 +477,12 @@ deep link `fest://p/bcf69309791cf210`.
 
 1. Check out a fresh master: `git fetch && git checkout master && git pull`.
    CI on master is already running and green (see
-   <https://github.com/magtophard-ai/Plans/actions>).
+   <https://github.com/Ax1123B/Plans/actions>).
 2. Pick a roadmap item. The two easiest unblocked candidates are:
    - **P4 dark theme** — UI-only, no schema/API work; constrained to the
      Aurora palette.
-   - **P5 integration tests** — now cheap because CI already runs Postgres +
-     migrate + seed. Extend `backend/src/tests/*-smoke.ts` with additional
-     flows instead of inventing a new test framework.
-3. Run both typechecks (`cd backend && npx tsc --noEmit`,
-   `cd fest-app && npx tsc --noEmit`) locally before opening a PR. The CI
-   workflow will re-run the same commands plus the two smoke jobs.
+   - **P5 integration tests** — now cheap because CI already runs Spring Gradle smoke suites with Postgres/Testcontainers. Extend Spring smoke coverage instead of inventing a new test framework.
+3. Run Spring checks (`cd backend-spring && ./gradlew test` plus relevant smoke tasks) and frontend typecheck (`cd fest-app && npx tsc --noEmit`) locally before opening a PR. The CI workflow will re-run the same active gates plus legacy Fastify archive checks.
 4. Open PRs against master — CI will block the merge if the smoke tests
    regress.
 

@@ -1,8 +1,8 @@
 # backend-spring
 
-Spring Boot backend switchover-candidate / preferred parity backend.
-Fastify remains available in `../backend` as fallback/reference until a separate
-final canonical switch is completed with a rollback path.
+Spring Boot is the current canonical backend for the project.
+
+The old Fastify implementation remains in `../backend` as an archived legacy implementation for history and rollback reference only. New backend changes should target Spring.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ final canonical switch is completed with a rollback path.
 - PostgreSQL 17 for local/manual smoke runs.
 - Gradle wrapper as the build tool.
 
-## Current parity coverage
+## Current canonical coverage
 
 - Scaffold + Flyway/seed.
 - Auth + read-only discovery.
@@ -45,14 +45,12 @@ final canonical switch is completed with a rollback path.
   - Explicit publish into public `events`.
   - Update/cancel propagation through existing notifications.
 
-## Switchover-candidate boundary
+## Canonical backend boundary
 
-- Spring functional parity is reached and this backend is the preferred parity
-  candidate for local development and final smoke verification.
-- This is not a dangerous production switchover: Fastify is not removed, API
-  contracts are unchanged, and fallback commands stay documented.
-- See `../docs/SPRING_SWITCHOVER.md` for the Spring-first runbook, full smoke,
-  frontend env, content ops commands, and rollback path.
+- Spring functional parity and mobile-facing validation are complete.
+- Spring is the active backend path for local development, CI smoke verification, content ops, and new backend changes.
+- Fastify is not removed, but it is archived in `../backend` and should only be used for rollback/history checks.
+- See `../docs/SPRING_SWITCHOVER.md` for the Spring canonical runbook, smoke commands, frontend env, content ops commands, and archived Fastify rollback note.
 
 ## Package structure
 
@@ -248,7 +246,7 @@ cd backend-spring
 PORT=3001 ./gradlew bootRun
 ```
 
-The app reads `PORT` and defaults to `3001`, matching the current Fastify backend.
+The app reads `PORT` and defaults to `3001`, matching the frontend's expected local backend port.
 
 Database config uses:
 
@@ -256,7 +254,7 @@ Database config uses:
 - `DATABASE_USERNAME` or `postgres`
 - `DATABASE_PASSWORD` or `postgres`
 
-`DATABASE_URL` may be either a JDBC URL or the current Fastify-style
+`DATABASE_URL` may be either a JDBC URL or a legacy-compatible
 `postgres://user:password@host:port/db` URL.
 
 Spring Boot runs Flyway automatically from `src/main/resources/db/migration`.
@@ -266,7 +264,7 @@ Dev seed parity SQL is available at
 production.
 
 Current Flyway migrations are intended for a fresh Spring-managed database.
-Connecting this Spring app to an existing Fastify-managed database requires a separate
+Connecting this Spring app to an existing legacy Fastify-managed database requires a separate
 baseline-on-migrate/manual baseline plan before enabling Flyway against that database.
 
 ## Local smoke outline
@@ -292,7 +290,7 @@ cd backend-spring
 ./gradlew fullSpringSmokeTest
 ```
 
-This is the final switchover-candidate smoke. It starts Spring Boot on a random
+This is the canonical Spring network smoke. It starts Spring Boot on a random
 local port as a real web server, uses PostgreSQL 17 through Testcontainers,
 calls `localhost` through Java's real HTTP client, and connects a real
 WebSocket client to `/api/ws`.
@@ -334,9 +332,9 @@ When `EXPO_PUBLIC_WS_BASE_URL` is unset, the frontend derives
 `ws://localhost:3001/api/ws` from the API URL. For HTTPS tunnels/mobile testing,
 set `EXPO_PUBLIC_WS_BASE_URL=wss://<backend-host>/api/ws` before Metro starts.
 
-## Fastify rollback
+## Archived Fastify rollback
 
-Stop Spring and use the existing fallback backend:
+Fastify is archived legacy code. Use it only when explicitly validating or restoring legacy behavior:
 
 ```bash
 cd backend
@@ -348,17 +346,15 @@ npm run start
 ```
 
 Keep the local frontend URL at `http://localhost:3001/api`, or point the Expo
-env vars at the Fastify tunnel for mobile testing.
+env vars at the legacy Fastify tunnel when performing a rollback drill.
 
 ## Schema rule
 
 Do not use Hibernate to generate database schema.
 
-`spring.jpa.hibernate.ddl-auto=none` is pinned in config; future DB work must mirror
-`contracts/mvp/db/001_init.sql` and idempotent migrations from `backend/src/db/migrate.ts`.
+`spring.jpa.hibernate.ddl-auto=none` is pinned in config; future DB work belongs in Flyway migrations under `backend-spring/src/main/resources/db/migration` and must remain compatible with `contracts/mvp/db/001_init.sql`.
 
 ## Migration boundary
 
-Do not change frontend product logic, API contracts, or remove the old
-`backend/` fallback as part of switchover-candidate work unless a later task
-explicitly expands scope.
+Do not change frontend product logic, API contracts, or remove the archived legacy
+`backend/` implementation unless a later task explicitly expands scope.

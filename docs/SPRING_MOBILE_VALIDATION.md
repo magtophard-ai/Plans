@@ -7,9 +7,9 @@ Base commit: `9b31a27` (`master`, PR #15 merged)
 
 ## Scope
 
-This validation ran the Expo frontend against the Spring backend as the preferred parity backend before any final canonical switch. Fastify remains in `backend/` as fallback/reference.
+This validation ran the Expo frontend against Spring during PR #16. Spring is now the current canonical backend; Fastify remains in `backend/` as archived legacy code for history, rollback drills, and legacy parity audits only.
 
-This PR does not remove Fastify, does not disable Fastify CI jobs, does not change production DB migration/baseline strategy, and does not declare Spring canonical default.
+The validation PR did not remove Fastify, did not disable Fastify CI jobs, and did not change production DB migration/baseline strategy.
 
 ## Runtime setup
 
@@ -151,7 +151,7 @@ Test credentials:
 | 14 | Unfinalize plan | Pass | Finalized plan returned to active state. |
 | 15 | Send plan message | Pass | Chat message posted. |
 | 16 | Check message appears | Pass | Message appeared without page refresh. |
-| 17 | Realtime update without refresh | Partial | Same-session UI updated after REST actions; backend realtime smoke remains the stronger two-client coverage. No two-device Expo Go test was available because Expo tunnel failed. |
+| 17 | Realtime update without refresh | Partial | Same-session UI updated after REST actions; Spring `realtimeSmokeTest` remains the stronger two-client coverage. No two-device Expo Go test was available because Expo tunnel failed. |
 | 18 | Complete plan | Pass after fix | Finalized plan screen initially did not expose complete; fixed and retested. |
 | 19 | Repeat completed plan | Pass | Completed plan repeated into a new active plan. |
 | 20 | Notifications list/read | Pass | Notifications list loaded and `mark all read` worked. |
@@ -185,13 +185,13 @@ Fix: show `Завершить план` for finalized plans and retested complet
 - Realtime was manually observed as same-session UI refresh after actions; full two-client realtime coverage should rely on `backend-spring` realtime smoke and/or a later real-device Expo Go pass.
 - The Cloudflare tunnel URLs are ephemeral and should not be stored as permanent dependencies.
 
-## Rollback path to Fastify
+## Archived Fastify rollback path
 
 1. Stop Spring.
-2. Start Fastify from `backend/` with the existing Fastify env/migrate/seed runbook.
-3. Point `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` to the Fastify local/public backend URL.
-4. Keep Fastify CI jobs enabled until a later canonical switch PR explicitly retires them.
+2. Start archived legacy Fastify from `backend/` only for an explicit rollback drill.
+3. Point `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` to the legacy Fastify local/public backend URL.
+4. Keep Fastify CI jobs enabled as archived legacy checks while the archive remains in the repo.
 
 ## Recommendation
 
-Spring passed the available Expo web validation flow after the contract/runtime fixes above. The next PR can prepare the Spring canonical-default change only if the team accepts Expo web as sufficient mobile-facing validation; if strict native Expo Go validation is required, rerun the same checklist on a real device once the Expo/ngrok tunnel issue is resolved.
+Spring passed the available Expo web validation flow after the contract/runtime fixes above. Spring is now the current canonical backend; rerun the same checklist on a real device when strict native Expo Go validation is needed for release readiness.

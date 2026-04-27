@@ -1,59 +1,28 @@
-# Spring switchover candidate
+# Spring canonical backend runbook
 
-Spring functional parity is reached. This PR prepares Spring to become the
-canonical backend candidate by making the local runbook, docs, CI, and a final
-network smoke explicit. It is not the final production switchover.
+Spring Boot in `backend-spring/` is the current canonical backend for Plans. The old Fastify implementation remains in `backend/` as an archived legacy implementation for history and rollback reference only; new backend changes should target Spring.
 
-Fastify remains in `backend/` as fallback/reference until a later PR declares
-Spring canonical and keeps a verified rollback path.
+## Current backend status
 
-## Current backend audit
+### Spring canonical backend
 
-### Fastify today
-
-- Local backend: `cd backend && npm install --legacy-peer-deps`.
-- Env: `DATABASE_URL=postgres://postgres:postgres@localhost:5432/plans`,
-  `JWT_SECRET=dev-secret-change-in-prod`, `OTP_CODE=1111`, `PORT=3001`,
-  `NODE_ENV=development`.
-- Migrate/seed: `npm run db:migrate && npm run db:seed`.
-- Run: `npm run start` or `npm run dev`; API is `http://localhost:3001/api`.
-- Realtime: `ws://localhost:3001/api/ws`.
-- Content ops fallback: `npm run ops:import`, `ops:list`, `ops:show` via
-  `ops:content`, `ops:publish`, `ops:update`, `ops:sync`, `ops:cancel`.
-- CI still runs Fastify `backend typecheck`, `backend e2e smoke`,
-  `backend realtime smoke`, and `backend content ops smoke`.
-
-### Spring today
-
-- Local backend: `cd backend-spring && ./gradlew bootRun`.
-- Env: `DATABASE_URL` accepts either `postgres://...` or `jdbc:postgresql://...`;
-  `DATABASE_USERNAME`/`DATABASE_PASSWORD` default to `postgres`; `PORT` defaults
-  to `3001`; `JWT_SECRET` defaults to `dev-secret`; `OTP_CODE` defaults to
-  `1111`.
-- Migrations: Flyway runs automatically from
-  `backend-spring/src/main/resources/db/migration` against a fresh
-  Spring-managed database.
-- Seed: dev seed SQL is `backend-spring/src/main/resources/db/seed/R__dev_seed.sql`.
-  It is loaded by tests and can be loaded manually for local app runs.
-- Run: `PORT=3001 ./gradlew bootRun`; API is `http://localhost:3001/api`.
+- Location: `backend-spring/`.
+- Run: `cd backend-spring && PORT=3001 ./gradlew bootRun`.
+- API: `http://localhost:3001/api`.
 - Realtime: raw JSON WebSocket at `ws://localhost:3001/api/ws`.
+- Database: PostgreSQL 17. Flyway runs automatically from `backend-spring/src/main/resources/db/migration` against a fresh Spring-managed database.
+- Seed: `backend-spring/src/main/resources/db/seed/R__dev_seed.sql`.
 - Content ops: CLI-only through `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="..."`.
-- CI runs `backend-spring test`, `core smoke`, `realtime smoke`,
-  `content ops smoke`, and now `full smoke`.
+- CI: `backend-spring test`, `core smoke`, `realtime smoke`, `content ops smoke`, and `full smoke`.
 
-### Frontend env for Spring
+### Fastify archived legacy implementation
 
-- Set `EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api`.
-- Leave `EXPO_PUBLIC_WS_BASE_URL` unset for local Spring; the frontend derives
-  `ws://localhost:3001/api/ws`.
-- For public HTTPS tunnel/mobile testing, set both:
-  - `EXPO_PUBLIC_API_BASE_URL=https://<backend-host>/api`
-  - `EXPO_PUBLIC_WS_BASE_URL=wss://<backend-host>/api/ws`
-- Dev auth remains mock OTP: any seeded phone, for example `+79990000000`,
-  verifies with code `1111`. JWT is returned by `/api/auth/otp/verify` and sent
-  as `Authorization: Bearer <token>`.
+- Location: `backend/`.
+- Status: archived legacy code, not the active backend path.
+- Purpose: history, rollback drills, and legacy parity audits only.
+- CI legacy checks remain so the archive does not silently rot, but they do not make Fastify the active backend.
 
-## Spring-first local run
+## Spring local run
 
 ### 1. PostgreSQL
 
@@ -74,9 +43,7 @@ If it already exists:
 docker start fest-pg
 ```
 
-The Spring Flyway flow is intended for a fresh Spring-managed DB. Do not point
-it at an existing production/Fastify-managed DB without a separate Flyway
-baseline plan.
+The Spring Flyway flow is intended for a fresh Spring-managed DB. Do not point it at an existing production or legacy Fastify-managed DB without a separate Flyway baseline plan.
 
 ### 2. Spring backend
 
@@ -97,8 +64,7 @@ curl http://localhost:3001/api/health
 
 ### 3. Seed data
 
-Spring tests load the dev seed automatically. For a manual local app run, load
-the seed SQL into the fresh Spring DB:
+Spring tests load the dev seed automatically. For a manual local app run, load the seed SQL into the fresh Spring DB:
 
 ```bash
 psql postgres://postgres:postgres@localhost:5432/plans \
@@ -122,17 +88,11 @@ Use OTP `1111`.
 cd fest-app
 npm install --legacy-peer-deps
 export EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api
-unset EXPO_PUBLIC_WS_BASE_URL
+export EXPO_PUBLIC_WS_BASE_URL=ws://localhost:3001/api/ws
 npx expo start --web
 ```
 
-WebSocket behavior:
-
-- If `EXPO_PUBLIC_WS_BASE_URL` is set, it is used directly.
-- If unset, `fest-app/src/api/client.ts` derives it from
-  `EXPO_PUBLIC_API_BASE_URL` by mapping `http` to `ws`, `https` to `wss`, and
-  `/api` to `/api/ws`.
-- Local Spring therefore derives `ws://localhost:3001/api/ws`.
+`EXPO_PUBLIC_WS_BASE_URL` is optional locally: if unset, `fest-app/src/api/client.ts` derives `ws://localhost:3001/api/ws` from `EXPO_PUBLIC_API_BASE_URL`.
 
 For Expo Go via tunnel:
 
@@ -160,7 +120,7 @@ SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="cancel --event-i
 
 ## Verification
 
-Spring checks:
+Canonical Spring checks:
 
 ```bash
 cd backend-spring
@@ -169,15 +129,9 @@ cd backend-spring
 ./gradlew realtimeSmokeTest
 ./gradlew contentOpsSmokeTest
 ./gradlew fullSpringSmokeTest
-./gradlew compileJava
 ```
 
-`fullSpringSmokeTest` starts Spring on a random local port with PostgreSQL via
-Testcontainers, calls real HTTP on `localhost`, connects a real WebSocket client
-to `/api/ws`, and exercises health, OTP auth, events, plan CRUD/list/detail,
-share-token preview/join, participants invite/list, proposals, vote/unvote,
-finalize/unfinalize, messages with `client_message_id` dedup, realtime events,
-complete/repeat, notifications, and content ops service-path coverage.
+`fullSpringSmokeTest` starts Spring on a random local port with PostgreSQL via Testcontainers, calls real HTTP on `localhost`, connects a real WebSocket client to `/api/ws`, and exercises health, OTP auth, events, plan CRUD/list/detail, share-token preview/join, participants invite/list, proposals, vote/unvote, finalize/unfinalize, messages with `client_message_id` dedup, realtime events, complete/repeat, notifications, and content ops service-path coverage.
 
 Frontend contract check when env/docs/scripts touch frontend startup:
 
@@ -186,7 +140,7 @@ cd fest-app
 npx tsc --noEmit
 ```
 
-Fastify fallback checks remain:
+Archived legacy Fastify checks remain available for rollback/history only:
 
 ```bash
 cd backend
@@ -196,13 +150,12 @@ npx tsx src/tests/rt2-smoke.ts
 npx tsx src/tests/content-ops-smoke.ts
 ```
 
-The smoke scripts require Fastify already running on `:3001` with migrated and
-seeded Postgres.
+The legacy smoke scripts require Fastify already running on `:3001` with migrated and seeded Postgres.
 
-## Rollback path to Fastify
+## Archived Fastify rollback drill
 
 1. Stop Spring.
-2. Start Fastify:
+2. Start the legacy Fastify backend:
    ```bash
    cd backend
    npm install --legacy-peer-deps
@@ -211,33 +164,21 @@ seeded Postgres.
    npm run db:seed
    npm run start
    ```
-3. Keep frontend env unchanged for local fallback:
+3. Keep frontend env unchanged for a local rollback drill:
    ```bash
    export EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api
-   unset EXPO_PUBLIC_WS_BASE_URL
+   export EXPO_PUBLIC_WS_BASE_URL=ws://localhost:3001/api/ws
    ```
-4. For a public/mobile fallback URL, point `EXPO_PUBLIC_API_BASE_URL` and
-   `EXPO_PUBLIC_WS_BASE_URL` at the Fastify tunnel instead of the Spring tunnel.
+4. For a public/mobile rollback drill, point `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_WS_BASE_URL` at the legacy Fastify tunnel instead of the Spring tunnel.
 
-Fastify smoke/realtime/content-ops CI jobs are intentionally preserved.
+Fastify smoke/realtime/content-ops CI jobs are intentionally preserved as legacy archive checks.
 
 ## Manual Expo/mobile validation
 
-See [`SPRING_MOBILE_VALIDATION.md`](./SPRING_MOBILE_VALIDATION.md) for the
-2026-04-27 Spring public-backend validation report.
+See [`SPRING_MOBILE_VALIDATION.md`](./SPRING_MOBILE_VALIDATION.md) for the 2026-04-27 Spring public-backend validation report.
 
-Status: the available Expo web flow against a public Spring URL passed after
-minimal contract/runtime fixes. Native Expo Go tunnel validation was not
-completed because the Expo/ngrok tunnel failed in the VM, so a strict real-device
-Expo Go pass should be rerun before declaring Spring canonical if that is a hard
-requirement.
+Status: the available Expo web flow against a public Spring URL passed after minimal contract/runtime fixes, and a later Expo Go tunnel was prepared for phone testing. Spring is now documented as the canonical backend; keep rerunning native Expo Go checks for release readiness when mobile changes land.
 
-## Criteria for the next PR to declare Spring canonical default
+## Migration / archive note
 
-- `fullSpringSmokeTest` is green in CI.
-- `frontend typecheck` is green.
-- Manual Expo/mobile check against the Spring URL has passed.
-- No known API contract mismatches remain.
-- Fastify fallback remains documented and verified.
-- A production rollout plan includes a DB baseline/rollback plan; no dangerous
-  production Flyway switch is attempted without it.
+Fastify is no longer the active backend because Spring reached functional parity, has Spring smoke coverage, and passed mobile-facing validation work. The Fastify code remains at `backend/` for history and rollback reference. New backend features, fixes, schema changes, runbooks, and tests should be implemented in `backend-spring/`.

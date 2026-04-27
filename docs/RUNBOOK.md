@@ -10,7 +10,8 @@ path as needed.
 
 ## Prerequisites
 
-- Node.js 20+
+- Java 21
+- Node.js 22.x recommended for Expo/frontend work
 - PostgreSQL 17 running on localhost:5432
 - `psql` on PATH (or at `C:\Program Files\PostgreSQL\17\bin\`)
 - Windows (commands below are PowerShell)
@@ -21,18 +22,16 @@ path as needed.
 # 1. Create the database
 & "C:\Program Files\PostgreSQL\17\bin\psql" -U postgres -c "CREATE DATABASE plans"
 
-# 2. Install backend deps (disk C full on canonical dev box — redirect npm cache)
-cd .\backend
-$env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
+# 2. Verify canonical Spring backend wrapper
+cd .\backend-spring
+.\gradlew.bat test
 
-# 3. Run migration
-npm run db:migrate
+# 3. Seed demo data after first Spring startup, if needed
+cd ..
+& "C:\Program Files\PostgreSQL\17\bin\psql" postgres://postgres:postgres@localhost:5432/plans -f backend-spring\src\main\resources\db\seed\R__dev_seed.sql
 
-# 4. Seed demo data
-npm run db:seed
-
-# 5. Install frontend deps
-cd ..\fest-app
+# 4. Install frontend deps (disk C full on canonical dev box — redirect npm cache)
+cd .\fest-app
 $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 ```
 
@@ -41,8 +40,9 @@ $env:npm_config_cache="E:\npm-cache"; npm install --legacy-peer-deps
 ### Backend (terminal 1)
 
 ```powershell
-cd .\backend
-npm run start
+cd .\backend-spring
+$env:PORT="3001"
+.\gradlew.bat bootRun
 # → http://localhost:3001
 ```
 
@@ -59,6 +59,7 @@ npx expo start --web
 ```powershell
 cd .\fest-app
 $env:EXPO_PUBLIC_API_BASE_URL="http://<YOUR_LAN_IP>:3001/api"
+$env:EXPO_PUBLIC_WS_BASE_URL="ws://<YOUR_LAN_IP>:3001/api/ws"
 npx expo start --go --tunnel
 # Open with Expo Go / emulator from Metro UI
 ```
@@ -67,19 +68,22 @@ Example:
 
 ```powershell
 $env:EXPO_PUBLIC_API_BASE_URL="http://192.168.0.28:3001/api"
+$env:EXPO_PUBLIC_WS_BASE_URL="ws://192.168.0.28:3001/api/ws"
 npx expo start --go --tunnel
 ```
 
 ## Environment variables
 
-File: `backend\.env` (see `backend\.env.example` for the template)
+Canonical backend env for `backend-spring/`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/plans` | PostgreSQL connection string |
+| `DATABASE_USERNAME` | `postgres` | PostgreSQL username when `DATABASE_URL` is not used |
+| `DATABASE_PASSWORD` | `postgres` | PostgreSQL password when `DATABASE_URL` is not used |
 | `JWT_SECRET` | `dev-secret-change-in-prod` | JWT signing key |
 | `OTP_CODE` | `1111` | Mock OTP code for all auth |
-| `PORT` | `3001` | Backend port (must be 3001 — frontend hardcodes this) |
+| `PORT` | `3001` | Backend port expected by local frontend env |
 
 Frontend (runtime env in terminal):
 
@@ -108,25 +112,21 @@ Notes:
 
 ## Content Ops v1
 
-Backend-only operator flow:
+Backend-only operator flow now runs through canonical Spring:
 
 ```powershell
-cd .\backend
-npm run ops:import -- --file path\to\event.json
-npm run ops:list -- --state imported
-npm run ops:content -- show --ingestion-id <id>
-npm run ops:publish -- --ingestion-id <id> [--venue-id <venue-id>]
-npm run ops:sync -- --file path\to\event.json
-npm run ops:update -- --ingestion-id <id>
-npm run ops:cancel -- --event-id <id> --reason "..."
-npm run ops:content -- <import|list|show|publish|update|sync|cancel>
+cd .\backend-spring
+$env:SPRING_MAIN_WEB_APPLICATION_TYPE="none"
+.\gradlew.bat bootRun --args="import --file ..\docs\examples\content-ops-event.example.json"
+.\gradlew.bat bootRun --args="list --state imported"
+.\gradlew.bat bootRun --args="show --ingestion-id <id>"
+.\gradlew.bat bootRun --args="publish --ingestion-id <id> [--venue-id <venue-id>] [--force-link-event-id <event-id>]"
+.\gradlew.bat bootRun --args="sync --file ..\docs\examples\content-ops-event.example.json"
+.\gradlew.bat bootRun --args="update --ingestion-id <id>"
+.\gradlew.bat bootRun --args="cancel --event-id <id> --reason '...'"
 ```
 
-`ops:sync` only updates an already-published/linked event; new public rows are
-created only by explicit `ops:publish`. Venue resolution reuses exact
-name+address; if no `--venue-id` is supplied and no venue matches, v1 creates a
-venue with `lat=0/lng=0`, so pass `--venue-id` when coordinates matter. Safe
-synthetic payload example: `docs/examples/content-ops-event.example.json`.
+`sync` only updates an already-published/linked event; new public rows are created only by explicit `publish`. Venue resolution reuses exact name+address; if no `--venue-id` is supplied and no venue matches, v1 creates a venue with `lat=0/lng=0`, so pass `--venue-id` when coordinates matter. Safe synthetic payload example: `docs/examples/content-ops-event.example.json`.
 
 ## Demo accounts
 
@@ -153,23 +153,24 @@ All accounts use OTP code `1111`.
 - **No email auth** — phone-only
 - **No group chat** — chat is plan-level only
 - **Max 15 participants per plan**
-- **Web-only tested** — mobile builds not verified for this release
+- **Mobile validation is environment-sensitive** — use `docs/DEMO_SETUP.md` when rechecking Expo Go tunnels
 - **fest-animations** — isolated from main TypeScript gate; check separately with `npx tsc --noEmit -p tsconfig.fest-animations.json` if needed
 
 ## Release checklist
 
-- [ ] `npx tsc --noEmit` passes (main app only, `src/fest-animations/**` excluded)
-- [ ] `npx tsc --noEmit` passes in backend
+- [ ] `cd fest-app; npx tsc --noEmit` passes (main app only, `src/fest-animations/**` excluded)
+- [ ] `cd backend-spring; .\gradlew.bat test` passes
+- [ ] `cd backend-spring; .\gradlew.bat coreSmokeTest` passes
+- [ ] `cd backend-spring; .\gradlew.bat realtimeSmokeTest` passes
+- [ ] `cd backend-spring; .\gradlew.bat contentOpsSmokeTest` passes
+- [ ] `cd backend-spring; .\gradlew.bat fullSpringSmokeTest` passes
 - [ ] (optional) `npx tsc --noEmit -p tsconfig.fest-animations.json` reviewed separately
 - [ ] `npx expo export --platform web` succeeds
-- [ ] Backend starts on port 3001
-- [ ] (optional) Content ops smoke passes: `cd backend && npx tsx src/tests/content-ops-smoke.ts`
+- [ ] Spring backend starts on port 3001
 - [ ] `/api/health` returns `{ status: "ok" }`
-- [ ] Seed runs without error
+- [ ] Seed loads without error when needed
 - [ ] Auth flow works with `+79990000000` / `1111`
-- [ ] Home feed loads with 6 events
+- [ ] Home feed loads with seeded events
 - [ ] Search returns results
 - [ ] Plan creation succeeds
 - [ ] Invitation accept/decline works
-- [ ] Backend smoke suite passes: `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\tests\e2e-smoke.ts`
-- [ ] Realtime smoke suite passes: `E:\FEST\V1\backend\node_modules\.bin\tsx.cmd E:\FEST\V1\backend\src\tests\rt2-smoke.ts`

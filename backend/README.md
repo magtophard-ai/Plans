@@ -1,16 +1,15 @@
-# Планы? Backend
+# Планы? Legacy Fastify Backend
 
-Fastify remains available as the fallback/reference backend while
-`backend-spring/` is evaluated as the switchover-candidate preferred parity
-backend. Do not delete these commands until the final canonical Spring switch
-has a proven rollback path.
+This directory is an archived legacy Fastify implementation. Spring Boot in `../backend-spring/` is the current canonical backend for active development, CI smoke work, runbooks, and new backend changes.
+
+Keep this code for history, rollback drills, and legacy parity audits only. Do not add new product backend functionality here unless explicitly restoring or auditing legacy behavior.
 
 ## Prerequisites
 
 - Node.js 22.x
 - PostgreSQL 17 running locally with a `plans` database
 
-## Setup
+## Legacy setup
 
 From the repo root:
 
@@ -37,7 +36,7 @@ cp .env.example .env       # Windows: copy .env.example .env
 # Edit .env with your DATABASE_URL
 ```
 
-## Run
+## Legacy run
 
 ```bash
 # Dev (watch mode)
@@ -49,9 +48,9 @@ npm start
 
 Server starts at `http://localhost:3001`. Health check: `GET /api/health`.
 
-## Content Ops v1
+## Legacy Content Ops v1
 
-Internal real-event supply is CLI-only and consumes manually normalized JSON.
+The canonical content-ops path is Spring in `../backend-spring/`. This legacy implementation is CLI-only and consumes manually normalized JSON.
 `source_url` is metadata only; the backend does not fetch or parse arbitrary
 URLs.
 
@@ -73,7 +72,7 @@ public event before explicit `ops:publish`. Duplicate candidates require
 operator confirmation via `--force-link-event-id`. If no `--venue-id` is passed,
 publish reuses exact venue name+address or may create `lat=0/lng=0`.
 
-## Authentication
+## Legacy authentication
 
 All endpoints except `/api/auth/otp/send` and `/api/auth/otp/verify` require a Bearer JWT.
 
@@ -91,7 +90,7 @@ export TOKEN=<access_token>
 curl http://localhost:3001/api/events -H "Authorization: Bearer $TOKEN"
 ```
 
-## Main endpoints
+## Legacy endpoint archive
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -134,13 +133,13 @@ curl http://localhost:3001/api/events -H "Authorization: Bearer $TOKEN"
 | PATCH | /api/notifications/read-all | Mark all read |
 | GET | /api/search/events | Search events |
 
-## Typecheck
+## Legacy typecheck
 
 ```bash
 npm run typecheck
 ```
 
-## Smoke tests
+## Legacy smoke tests
 
 Run with the backend already listening on `:3001` and
 `DATABASE_URL=postgres://postgres:postgres@localhost:5432/plans`:

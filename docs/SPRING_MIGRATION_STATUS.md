@@ -4,24 +4,19 @@
 
 ## Current status
 
-Spring migration has reached functional parity and is now a switchover
-candidate. Fastify remains available as fallback/reference until the production
-switchover is explicitly completed with rollback coverage.
+Spring Boot in `backend-spring/` is the current canonical backend for Plans. Fastify in `backend/` is archived legacy code for history, rollback drills, and legacy parity audits only.
 
-Completed Spring parity checkpoints:
+Completed Spring checkpoints:
 
 - Scaffold + Flyway/seed:
   - `backend-spring/` Spring Boot scaffold with Java 21 and Gradle wrapper.
-  - PostgreSQL datasource config, Flyway migrations, dev seed parity, health endpoint, shared error
-    envelopes, and snake_case JSON output.
+  - PostgreSQL datasource config, Flyway migrations, dev seed parity, health endpoint, shared error envelopes, and snake_case JSON output.
 - Auth + read-only discovery:
   - OTP auth, refresh/me endpoints, user/friends read APIs, event/venue/search discovery reads.
 - User/friend/event write:
-  - User profile writes, friend request/accept/remove flows, event interest/save writes and related
-    notification behavior.
+  - User profile writes, friend request/accept/remove flows, event interest/save writes and related notification behavior.
 - Plans + invitations + notifications:
-  - Core plan list/create/detail/lifecycle endpoints, participant list/update/remove/invite,
-    invitation list/accept/decline, notification list/read/read-all.
+  - Core plan list/create/detail/lifecycle endpoints, participant list/update/remove/invite, invitation list/accept/decline, notification list/read/read-all.
 - Share-link endpoints:
   - `GET /api/plans/by-token/:token`.
   - `POST /api/plans/by-token/:token/join`.
@@ -30,32 +25,34 @@ Completed Spring parity checkpoints:
 - Plan messages.
 - Realtime WebSocket behavior.
 - Content ops.
+- Mobile-facing validation work from PR #16.
 
-This document is a status checkpoint only.
-It does not introduce new API implementation work.
+This document is a status/archive checkpoint only. It does not introduce new API implementation work.
 
-## Still pending before final canonical switch
+## Migration / archive note
+
+Fastify is no longer the active backend because the Spring Boot implementation reached functional parity, passed Spring smoke coverage, and completed mobile-facing validation work. The legacy Fastify code stays in `backend/` so the project retains history and a rollback reference. New backend features, fixes, schema changes, runbooks, and tests should target `backend-spring/`.
+
+## Ongoing canonical backend requirements
 
 - `fullSpringSmokeTest` must stay green in CI.
 - Frontend typecheck must stay green.
-- Manual Expo/mobile verification against the Spring URL must pass.
+- Manual Expo/mobile verification should be rerun for release readiness when mobile or runtime-sensitive backend changes land.
 - No known API contract mismatches should remain.
-- Fastify fallback must stay documented and available.
-- Production DB baseline/rollback planning must happen before pointing Spring
-  Flyway at an existing production/Fastify-managed database.
+- Fastify legacy rollback notes must stay documented and available.
+- Production DB baseline/rollback planning must happen before pointing Spring Flyway at an existing production or legacy Fastify-managed database.
 
-## Existing production app was not changed
+## Existing production app was not changed by earlier migration checkpoints
 
-The production Expo frontend, API contracts, and existing Fastify backend remain unchanged by the
-Spring checkpoint work:
+Earlier Spring checkpoint work did not change production frontend deployment, API contracts, or the archived Fastify implementation:
 
 - no production frontend changes in `fest-app/`;
 - no contract changes in `contracts/`;
-- no old Fastify backend implementation changes in `backend/`.
+- no legacy Fastify implementation changes in `backend/`.
 
-Spring migration work is isolated to `backend-spring/` plus status/planning documentation.
+Spring canonical work lives in `backend-spring/` plus status/planning documentation.
 
-## Local checks actually run
+## Local checks historically run
 
 Local Spring verification has been the concrete signal for the completed Spring checkpoints:
 
@@ -70,33 +67,32 @@ Local Spring verification has been the concrete signal for the completed Spring 
   - Manual Spring `:3001` smoke for user, friend, and event write flows.
 - Plans + invitations + notifications:
   - `cd backend-spring && ./gradlew test`
-  - Manual Spring `:3001` smoke for plans, invitations, notifications, and participant invite
-    flows.
+  - Manual Spring `:3001` smoke for plans, invitations, notifications, and participant invite flows.
 - Share-link endpoints:
   - `cd backend-spring && ./gradlew test`
-  - Manual Spring `:3001` smoke for share-token preview, join, repeat join, invalid token, full
-    plan, and lifecycle restrictions.
+  - Manual Spring `:3001` smoke for share-token preview, join, repeat join, invalid token, full plan, and lifecycle restrictions.
 
 ## GitHub Actions / Checks status
 
-GitHub Actions have not provided a reliable Spring CI signal for these Spring checkpoints.
-If the GitHub Checks page shows `0` checks / `0` workflow runs, do not treat that as GitHub CI
-green.
+The workflow keeps Spring canonical gates, frontend typecheck, and legacy Fastify archive checks.
 
-The workflow now keeps existing Fastify/frontend jobs and also runs Spring
-Gradle gates: `test`, `coreSmokeTest`, `realtimeSmokeTest`,
-`contentOpsSmokeTest`, and `fullSpringSmokeTest`.
+Canonical Spring Gradle gates:
+
+- `test`
+- `coreSmokeTest`
+- `realtimeSmokeTest`
+- `contentOpsSmokeTest`
+- `fullSpringSmokeTest`
+
+Legacy Fastify CI jobs are preserved as archive/rollback checks only.
 
 ## Fresh DB limitation
 
 The current Flyway flow is designed for a fresh Spring-managed PostgreSQL database.
 
-Migrating on top of an already existing Fastify-managed database is not covered by this checkpoint
-and requires a separate baseline strategy, such as:
+Migrating on top of an already existing legacy Fastify-managed database requires a separate baseline strategy, such as:
 
 - `baseline-on-migrate` with a carefully selected baseline version; or
-- a manual Flyway baseline plan after comparing the existing Fastify DB schema, enum labels,
-  indexes, constraints, and applied idempotent migrations.
+- a manual Flyway baseline plan after comparing the existing legacy schema, enum labels, indexes, constraints, and applied idempotent migrations.
 
-Do not point the current Spring Flyway flow at a production/existing Fastify DB without that
-separate baseline plan.
+Do not point the current Spring Flyway flow at a production/existing legacy Fastify DB without that separate baseline plan.

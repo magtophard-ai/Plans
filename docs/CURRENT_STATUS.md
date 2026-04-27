@@ -1,6 +1,6 @@
 # FEST MVP — Current Status
 
-**Last updated**: 2026-04-25
+**Last updated**: 2026-04-27
 **Single source of truth**: this document for **what is shipped and how it runs today**.
 For a narrative of the most recent merges + next recommended task, see the
 Checkpoint section at the top of [`docs/HANDOFF.md`](./HANDOFF.md) (that
@@ -10,27 +10,27 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 
 ## TL;DR
 
+- Spring Boot in `backend-spring/` is the current canonical backend for active development, runbooks, and new backend changes.
+- Fastify in `backend/` is archived legacy code for history, rollback drills, and legacy parity audits only.
 - 4-slice MVP is complete and API-backed; all 7 Zustand stores are wired to
   the backend.
-- Demo stack runs end-to-end on a real iPhone via Expo Go tunnel (SDK 54).
-  iOS safe-area, OTP input, inverted-chat empty state, WS subscribe, plan
-  creation, and the `messages.client_message_id` migration all work.
+- Demo stack runs end-to-end through Expo Go/Web validation paths with Spring on port `3001`; use `EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api` and derived or explicit `EXPO_PUBLIC_WS_BASE_URL=ws://localhost:3001/api/ws`.
 - Observability (Sentry + PostHog) is shipped on both backend and frontend.
-- CI (GitHub Actions) gates every PR on backend + frontend typecheck, backend
-  REST/HTTP smoke, realtime (WebSocket) smoke, and content-ops smoke. See
+- CI (GitHub Actions) gates every PR on Spring Gradle tests/smokes, frontend typecheck, and archived legacy Fastify checks. See
   [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 - Content Ops v1 is shipped as an internal CLI-only workflow for normalized
   JSON import/publish/update/cancel; see
-  [`docs/HANDOFF.md`](./HANDOFF.md#content-ops-commands).
+  [`backend-spring/README.md`](../backend-spring/README.md#spring-content-ops-smoke).
 
 ## Implementation status
 
 | Slice | Scope | Status |
 |-------|-------|--------|
-| 1 | REST read-only + minimal writes (auth, events, venues, search, interest/save) | Done |
-| 2 | Plan lifecycle, participants, invitations, groups, notifications | Done |
-| 3 | Proposals, voting, finalize/unfinalize, repeat, messages | Done |
-| 4 | WebSocket real-time (messages, proposals, votes, lifecycle, notifications) | Done |
+| 1 | REST read-only + minimal writes (auth, events, venues, search, interest/save) | Done on Spring |
+| 2 | Plan lifecycle, participants, invitations, groups, notifications | Done on Spring |
+| 3 | Proposals, voting, finalize/unfinalize, repeat, messages | Done on Spring |
+| 4 | WebSocket real-time (messages, proposals, votes, lifecycle, notifications) | Done on Spring |
+| Content Ops | Internal CLI import/list/show/publish/update/sync/cancel | Done on Spring |
 
 ## Feature status (API / mock / dev-only)
 
@@ -41,7 +41,7 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 | Venues | Seed-only, read-only from API |
 | Plans | Full CRUD + lifecycle, all API-backed |
 | Proposals + votes | Full API-backed |
-| Messages | Full API-backed, with `client_message_id` dedup (column is created by `backend/src/db/migrate.ts`) |
+| Messages | Full API-backed, with `client_message_id` dedup |
 | Invitations | Full API-backed (atomic accept with 15-participant `FOR UPDATE` lock) |
 | Groups | Full API-backed (list/detail/member reads) |
 | Notifications | Full API-backed, server-created only |
@@ -58,7 +58,7 @@ real-device testing, see [`docs/DEMO_SETUP.md`](./DEMO_SETUP.md).
 
 ## Realtime
 
-- **Connection**: `ws://<host>/api/ws` — JWT auth on connect, heartbeat (ping/pong).
+- **Connection**: `ws://<host>/api/ws` locally, `wss://<backend-host>/api/ws` for HTTPS tunnels/mobile — JWT auth on connect, heartbeat (ping/pong).
 - **Channels**: `user:{userId}`, `plan:{planId}`.
 - **Events emitted (11)** on `plan:{id}`: `plan.message.created`,
   `plan.proposal.created`, `plan.vote.changed`, `plan.finalized`,
@@ -82,10 +82,18 @@ For phone testing via Expo Go, follow
 documented path for real-device testing.
 
 Quick local (web) start:
-1. Postgres — `docker run -d --name fest-pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=plans postgres:17` (or Windows PG service — see [AGENTS.md](../AGENTS.md)).
-2. Backend — `cd backend && npm install --legacy-peer-deps && npm run db:migrate && npm run db:seed && npm run start`.
-3. Frontend — `cd fest-app && npm install --legacy-peer-deps && npx expo start --web`.
-4. Auth — phone `+79990000000`, code `1111`.
+1. Postgres — `docker run -d --name fest-pg -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=plans postgres:17`.
+2. Backend — `cd backend-spring && PORT=3001 ./gradlew bootRun`.
+3. Optional seed reload — `psql postgres://postgres:postgres@localhost:5432/plans -f backend-spring/src/main/resources/db/seed/R__dev_seed.sql`.
+4. Frontend — `cd fest-app && EXPO_PUBLIC_API_BASE_URL=http://localhost:3001/api EXPO_PUBLIC_WS_BASE_URL=ws://localhost:3001/api/ws npx expo start --web`.
+5. Auth — phone `+79990000000`, code `1111`.
+
+For tunnels/mobile, set:
+
+```bash
+export EXPO_PUBLIC_API_BASE_URL=https://<backend-host>/api
+export EXPO_PUBLIC_WS_BASE_URL=wss://<backend-host>/api/ws
+```
 
 ## Known limitations
 
@@ -124,15 +132,12 @@ Quick local (web) start:
 ## CI
 
 `.github/workflows/ci.yml` runs on every PR and push to `master`:
-- `backend typecheck` — `cd backend && npx tsc --noEmit`
-- `frontend typecheck` — `cd fest-app && npx tsc --noEmit`
-- `backend e2e smoke` — spins up Postgres 17 as a service, runs
-  `npm run db:migrate && npm run db:seed`, starts the backend, waits for
-  `/api/health`, then runs `backend/src/tests/e2e-smoke.ts`.
-- `backend realtime smoke` — same setup, runs
-  `backend/src/tests/rt2-smoke.ts`.
-- `backend content ops smoke` — same setup, runs
-  `backend/src/tests/content-ops-smoke.ts`.
+- `spring test` — `cd backend-spring && ./gradlew test`.
+- `spring core smoke` — `cd backend-spring && ./gradlew coreSmokeTest`.
+- `spring realtime smoke` — `cd backend-spring && ./gradlew realtimeSmokeTest`.
+- `spring content ops smoke` — `cd backend-spring && ./gradlew contentOpsSmokeTest`.
+- `spring full network smoke` — `cd backend-spring && ./gradlew fullSpringSmokeTest`.
+- `frontend typecheck` — `cd fest-app && npx tsc --noEmit`.
+- `legacy Fastify typecheck/e2e/realtime/content ops smoke` — retained only as archived legacy rollback checks.
 
-All five jobs must be green to merge. They run in parallel with independent
-Postgres instances.
+Spring jobs and frontend typecheck are the active path for new backend/frontend work. Legacy Fastify jobs should stay green while the archive remains in the repo, but new backend changes should not target Fastify.
