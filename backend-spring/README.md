@@ -38,10 +38,16 @@ Fastify remains canonical until full Spring parity and switchover are complete.
     `plan.finalized`, `plan.unfinalized`, `plan.cancelled`, `plan.completed`,
     `plan.participant.added`, `plan.participant.updated`, `plan.participant.removed`.
   - User event: `notification.created`.
+- Content ops CLI parity:
+  - `import`, `list`, `show`, `publish`, `update`, `sync`, `cancel`.
+  - Internal staged `event_ingestions` flow; no public admin HTTP endpoints.
+  - Explicit publish into public `events`.
+  - Update/cancel propagation through existing notifications.
 
 ## Not yet covered
 
-- Content ops.
+- No known backend-spring functional parity gaps. Fastify remains canonical until a
+  separate switchover PR.
 
 ## Package structure
 
@@ -65,6 +71,7 @@ cd backend-spring
 ./gradlew test
 ./gradlew coreSmokeTest
 ./gradlew realtimeSmokeTest
+./gradlew contentOpsSmokeTest
 ```
 
 ## Local tests
@@ -120,7 +127,7 @@ Smoke coverage:
 - repeat completed plan;
 - list/read/read-all notifications.
 
-Known gaps intentionally outside this smoke:
+Known behavior intentionally outside this smoke:
 
 - Realtime WebSocket behavior.
 - Content ops.
@@ -158,9 +165,75 @@ Smoke coverage:
   finalize, unfinalize, complete, and cancel;
 - `notification.created` on invite notification creation.
 
-Known gap intentionally outside this smoke:
+Known behavior intentionally outside this smoke:
 
 - Content ops.
+
+## Spring content ops smoke
+
+Run from the repo root:
+
+```bash
+cd backend-spring
+./gradlew contentOpsSmokeTest
+```
+
+The smoke uses Spring Boot + MockMvc/service calls against PostgreSQL 17
+Testcontainers. It mirrors the existing Fastify CLI-only content ops contract:
+there are no public admin endpoints and no frontend flow.
+
+Required local env:
+
+- Java 21.
+- Docker access for Testcontainers.
+
+Smoke coverage:
+
+- import/stage normalized content into `event_ingestions`;
+- list staged content and show one ingestion;
+- re-import with the same source key to edit staged content;
+- `sync` is update-only and returns `skipped: "not published yet; run ops:publish"`
+  without creating a public event;
+- explicit publish creates/updates one public event;
+- repeated sync/publish does not create duplicate events or venues;
+- duplicate detection by source fingerprint and legacy fallback by normalized title
+  + venue name/address + `starts_at`;
+- duplicate candidates require explicit `--force-link-event-id`;
+- venue resolution reuses exact name+address, otherwise creates a venue with
+  `lat=0` / `lng=0`;
+- update of an existing linked event emits `event_time_changed` notifications;
+- cancel marks the event cancelled, hides it from public lists/search/venue events,
+  keeps detail readable, and emits `event_cancelled` notifications;
+- invalid input, not found, and unauthorized error envelopes.
+
+Known behavior:
+
+- Content ops is CLI/internal only. Operators provide already-normalized JSON;
+  `source_url` is metadata only and no fetching/parsing is attempted.
+- `sync` never creates a public event. New public rows require explicit publish.
+- Publish is explicit and transactional.
+- Duplicate protection checks exact source key first, then fingerprint, then the
+  legacy normalized-title/venue/address/time fallback without backfilling legacy rows.
+- Venue auto-create uses `lat=0` / `lng=0`; pass `--venue-id` when coordinates matter.
+
+Local CLI run examples:
+
+```bash
+cd backend-spring
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import --file ../docs/examples/content-ops-event.example.json"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="list --state imported"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="show --ingestion-id <id>"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="publish --ingestion-id <id> [--venue-id <venue-id>] [--force-link-event-id <event-id>]"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="update --ingestion-id <id>"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="sync --file ../docs/examples/content-ops-event.example.json"
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="cancel --event-id <id> --reason '...'"
+```
+
+Equivalent long-form command style is also supported:
+
+```bash
+SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="--content-ops=import --file ../docs/examples/content-ops-event.example.json"
+```
 
 Local run on Spring `:3001`:
 

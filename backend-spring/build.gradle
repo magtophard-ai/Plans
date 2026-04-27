@@ -59,3 +59,14 @@ tasks.register('realtimeSmokeTest', Test) {
 		includeTestsMatching 'com.plans.backend.api.smoke.SpringRealtimeSmokeIntegrationTest'
 	}
 }
+
+tasks.register('contentOpsSmokeTest', Test) {
+	description = 'Runs Spring content ops smoke test.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	filter {
+		includeTestsMatching 'com.plans.backend.api.smoke.SpringContentOpsSmokeIntegrationTest'
+	}
+}
