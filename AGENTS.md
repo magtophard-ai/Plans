@@ -14,7 +14,7 @@ matches your shell; the commands themselves stay the same.
   ```
   On Linux/macOS the cache redirect is not needed; just `npm install --legacy-peer-deps`.
   `--legacy-peer-deps` is required on both platforms because Expo SDK 54 has peer-dep conflicts.
-- **Backend** runs on port 3001 (`cd backend && npx tsx src/index.ts`, or `$env:PORT="3001"; npx tsx src\index.ts` on PowerShell).
+- **Backend** runs on port 3001 from the canonical Spring implementation (`cd backend-spring && PORT=3001 ./gradlew bootRun`, or `$env:PORT="3001"; .\gradlew.bat bootRun` on PowerShell). `backend/` is archived legacy Fastify code for rollback/history only.
 - **PostgreSQL 17**: Windows uses the native service `postgresql-x64-17` (`psql` at `C:\Program Files\PostgreSQL\17\bin\`). Linux/macOS use the `postgres:17` docker image — see `docs/DEMO_SETUP.md`.
 
 ## Commands
@@ -26,29 +26,30 @@ commands with `$env:npm_config_cache="E:\npm-cache";` as described in
 | Action | Command |
 |--------|---------|
 | Install (frontend) | `npm install --legacy-peer-deps` (workdir: `fest-app/`) |
-| Install (backend) | `npm install --legacy-peer-deps` (workdir: `backend/`) |
-| DB migrate | `npm run db:migrate` (workdir: `backend/`) |
-| DB seed | `npm run db:seed` (workdir: `backend/`) |
+| Install (canonical backend) | no separate install; use Gradle wrapper (workdir: `backend-spring/`) |
+| DB migrate | automatic Flyway on Spring startup (workdir: `backend-spring/`) |
+| DB seed | `psql postgres://postgres:postgres@localhost:5432/plans -f backend-spring/src/main/resources/db/seed/R__dev_seed.sql` (repo root) |
 | Dev (web) | `npx expo start --web` → http://localhost:8081 (workdir: `fest-app/`) |
 | Dev (mobile) | `npx expo start` (workdir: `fest-app/`) |
 | Type check (frontend main app) | `npx tsc --noEmit` (workdir: `fest-app/`) |
 | Type check (fest-animations, optional) | `npx tsc --noEmit -p tsconfig.fest-animations.json` (workdir: `fest-app/`) |
-| Type check (backend) | `npx tsc --noEmit` (workdir: `backend/`) |
+| Test (canonical backend) | `./gradlew test` (workdir: `backend-spring/`) |
 | Smoke build | `npx expo export --platform web` (workdir: `fest-app/`) |
-| Start backend | `npm run start` (workdir: `backend/`) |
-| REST smoke | `npx tsx src/tests/e2e-smoke.ts` (workdir: `backend/`; backend must be running) |
-| Realtime smoke | `npx tsx src/tests/rt2-smoke.ts` (workdir: `backend/`; backend must be running) |
-| Content ops import | `npm run ops:import -- --file path/to/event.json` (workdir: `backend/`) |
-| Content ops publish | `npm run ops:publish -- --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]` (workdir: `backend/`) |
-| Content ops update | `npm run ops:update -- --ingestion-id <id>` (workdir: `backend/`) |
-| Content ops cancel | `npm run ops:cancel -- --event-id <id> --reason "..."` (workdir: `backend/`) |
-| Content ops smoke | `npx tsx src/tests/content-ops-smoke.ts` (workdir: `backend/`; backend must be running) |
+| Start backend | `PORT=3001 ./gradlew bootRun` (workdir: `backend-spring/`) |
+| REST smoke | `./gradlew coreSmokeTest` (workdir: `backend-spring/`) |
+| Realtime smoke | `./gradlew realtimeSmokeTest` (workdir: `backend-spring/`) |
+| Content ops import | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import --file path/to/event.json"` (workdir: `backend-spring/`) |
+| Content ops publish | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="publish --ingestion-id <id> [--venue-id <id>] [--force-link-event-id <id>]"` (workdir: `backend-spring/`) |
+| Content ops update | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="update --ingestion-id <id>"` (workdir: `backend-spring/`) |
+| Content ops cancel | `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="cancel --event-id <id> --reason \"...\""` (workdir: `backend-spring/`) |
+| Content ops smoke | `./gradlew contentOpsSmokeTest` (workdir: `backend-spring/`) |
+| Full Spring smoke | `./gradlew fullSpringSmokeTest` (workdir: `backend-spring/`) |
 
-No `npm test` script exists. No linter is configured — use `tsc --noEmit` as the verification gate. Always run it after code changes.
+No frontend `npm test` script exists. No linter is configured — use `npx tsc --noEmit` for frontend verification and Gradle tests/smokes for Spring backend verification. Legacy Fastify checks in `backend/` are archive/rollback checks only.
 
 ## Architecture
 
-Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Backend is source of truth for all mutations, invitations, notifications, plan lifecycle, participant mutations, proposal lifecycle, voting rules, messages. Frontend is a thin API consumer with optimistic UI for votes only.
+Expo + React Native + TypeScript frontend backed by the canonical Spring Boot + PostgreSQL API. Backend is source of truth for all mutations, invitations, notifications, plan lifecycle, participant mutations, proposal lifecycle, voting rules, messages. Frontend is a thin API consumer with optimistic UI for votes only.
 
 ### Navigation
 
@@ -114,27 +115,29 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 
 `active → finalized → completed`. Cancel from `active` or `finalized`. "Повторить" on completed creates a new active plan with same participants. All transitions are server-confirmed.
 
-### Backend routes (`backend/src/routes/`)
+### Backend API surface
 
-| File | Routes |
+Canonical implementations live under `backend-spring/src/main/java/com/plans/backend/api/**`. The archived Fastify routes in `backend/src/routes/**` remain useful as a legacy map, but active changes should target Spring.
+
+| Area | Routes |
 |------|--------|
-| `auth.ts` | OTP mock (code `1111`), JWT |
-| `users.ts` | `/users/me` (GET, PATCH), `/users/search`, `/users/friends`, `/users/friends/:id` (POST, PATCH, DELETE), `/users/:id` |
-| `events.ts` | Events + social proof (interested, saved, friends) |
-| `venues.ts` | Venues + events by venue |
-| `plans.ts` | Full plan CRUD, participants (GET/POST/PATCH/DELETE), proposals, votes, finalize/unfinalize, cancel/complete, repeat, messages, share-link preview/join (`GET /plans/by-token/:token`, `POST /plans/by-token/:token/join`) |
-| `invitations.ts` | List + PATCH (accept with atomic participant creation + 15-limit FOR UPDATE lock) |
-| `groups.ts` | List, get, invite-only member add |
-| `notifications.ts` | List + mark read |
-| `search.ts` | `GET /search/events` (text/date/category filters) |
-| `ws.ts` | WebSocket route: auth, subscribe/unsubscribe, heartbeat (ping/pong) |
+| Auth | OTP mock (code `1111`), JWT |
+| Users | `/users/me` (GET, PATCH), `/users/search`, `/users/friends`, `/users/friends/:id` (POST, PATCH, DELETE), `/users/:id` |
+| Events | Events + social proof (interested, saved, friends) |
+| Venues | Venues + events by venue |
+| Plans | Full plan CRUD, participants (GET/POST/PATCH/DELETE), proposals, votes, finalize/unfinalize, cancel/complete, repeat, messages, share-link preview/join (`GET /plans/by-token/:token`, `POST /plans/by-token/:token/join`) |
+| Invitations | List + PATCH (accept with atomic participant creation + 15-limit FOR UPDATE lock) |
+| Groups | List, get, invite-only member add |
+| Notifications | List + mark read |
+| Search | `GET /search/events` (text/date/category filters) |
+| Realtime | WebSocket route: auth, subscribe/unsubscribe, heartbeat (ping/pong) |
 
 ### Content Ops CLI
 
 - Internal real-event supply is CLI-first; no public admin UI or venue self-serve.
-- `npm run ops:import -- --file path/to/event.json` imports a manually normalized JSON payload into `event_ingestions`; `--source-url` is metadata only and does not fetch/parse.
+- `SPRING_MAIN_WEB_APPLICATION_TYPE=none ./gradlew bootRun --args="import --file path/to/event.json"` imports a manually normalized JSON payload into `event_ingestions`; `--source-url` is metadata only and does not fetch/parse.
 - Required JSON fields: `source_type`, `title`, `starts_at`, `ends_at`, `venue_name`, `address`, `cover_image_url`; optional: `source_url`, `source_event_key`, `description`, `external_url`, `category`, `tags`, `price_info`, `operator_note`.
-- Publish/update/cancel through `ops:publish`, `ops:update`, `ops:sync`, and `ops:cancel`; `ops:sync` only updates already-published/linked events and never creates a public event.
+- Publish/update/cancel through Spring `publish`, `update`, `sync`, and `cancel` commands; `sync` only updates already-published/linked events and never creates a public event.
 - Duplicate protection is exact source key first, then fingerprint, then legacy fallback on normalized event title + venue name/address + starts_at; duplicate candidates require `--force-link-event-id`.
 - Venue auto-create is a v1 compromise: exact name+address is reused; otherwise `ops:publish` creates a venue with `lat=0/lng=0`. Operators should pass `--venue-id` when coordinates matter.
 - Public lists (`GET /events`, `/search/events`, `/venues/:id/events`) show only `events.status='published'`; `GET /events/:id` can return cancelled events so linked plans/notifications do not 404.
@@ -149,7 +152,7 @@ Expo + React Native + TypeScript frontend backed by Fastify + PostgreSQL API. Ba
 - **Max 15 participants per plan**
 - **Chat is inside PlanDetails only** — no standalone chat
 - **Pre-meet** = simple text fields, no voting
-- **12 notification types**: `plan_invite`, `group_invite`, `proposal_created`, `plan_finalized`, `plan_unfinalized`, `event_time_changed`, `event_cancelled`, `plan_reminder`, `plan_completed`, `friend_request`, `friend_accepted`, `plan_join_via_link`. The canonical list lives in `backend/src/db/notifications.ts` (`NOTIFICATION_TYPES`); enum migrations are derived from it.
+- **12 notification types**: `plan_invite`, `group_invite`, `proposal_created`, `plan_finalized`, `plan_unfinalized`, `event_time_changed`, `event_cancelled`, `plan_reminder`, `plan_completed`, `friend_request`, `friend_accepted`, `plan_join_via_link`. Spring must preserve this contract in Flyway migrations and notification services.
 - **No client-side notification creation** — all notifications created server-side
 
 ## Web layout conventions
@@ -175,4 +178,4 @@ None — all stores are API-backed. `friendsStore` uses `GET /users/friends`.
 - Frontend quality gate excludes `src/fest-animations/**` in `fest-app/tsconfig.json`; validate this folder separately with `tsconfig.fest-animations.json` when needed
 - **Windows Date serialization bug**: pg driver returns JS Date objects for `timestamptz` columns. `Date.toString()` on Windows produces `GMT+0300` format which PostgreSQL rejects. Always convert via `Date.toISOString()` or use parameterized queries — never string-interpolate Date values into SQL.
 - `camelize()` in `api/client.ts` converts all `snake_case` API keys to `camelCase` for frontend types. Backend responses use `snake_case`, frontend uses `camelCase`.
-- Backend `POST /plans` creates plan + participants + invitations + notifications atomically in one transaction. Frontend `apiCreatePlan` only calls this endpoint — no local plan creation.
+- Spring backend `POST /plans` creates plan + participants + invitations + notifications atomically in one transaction. Frontend `apiCreatePlan` only calls this endpoint — no local plan creation.

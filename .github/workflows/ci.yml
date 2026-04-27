@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   backend-typecheck:
-    name: backend typecheck
+    name: legacy Fastify typecheck
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -133,7 +133,7 @@ jobs:
       - run: ./gradlew fullSpringSmokeTest
 
   backend-smoke:
-    name: backend e2e smoke
+    name: legacy Fastify e2e smoke
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -170,7 +170,7 @@ jobs:
         run: |
           npm run db:migrate
           npm run db:seed
-      - name: Run backend + e2e smoke
+      - name: Run legacy Fastify + e2e smoke
         run: |
           set -eo pipefail
           nohup npm run start > /tmp/backend.log 2>&1 &
@@ -178,20 +178,20 @@ jobs:
           trap 'kill $BACKEND_PID 2>/dev/null || true; cat /tmp/backend.log' EXIT
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3001/api/health >/dev/null; then
-              echo "backend ready after ${i}s"
+              echo "legacy Fastify ready after ${i}s"
               break
             fi
             if ! kill -0 $BACKEND_PID 2>/dev/null; then
-              echo "backend process died"
+              echo "legacy Fastify process died"
               exit 1
             fi
             sleep 1
           done
-          curl -sf http://localhost:3001/api/health || { echo "backend never became ready"; exit 1; }
+          curl -sf http://localhost:3001/api/health || { echo "legacy Fastify never became ready"; exit 1; }
           npx tsx src/tests/e2e-smoke.ts
 
   realtime-smoke:
-    name: backend realtime smoke
+    name: legacy Fastify realtime smoke
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -228,7 +228,7 @@ jobs:
         run: |
           npm run db:migrate
           npm run db:seed
-      - name: Run backend + realtime smoke
+      - name: Run legacy Fastify + realtime smoke
         run: |
           set -eo pipefail
           nohup npm run start > /tmp/backend.log 2>&1 &
@@ -236,20 +236,20 @@ jobs:
           trap 'kill $BACKEND_PID 2>/dev/null || true; cat /tmp/backend.log' EXIT
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3001/api/health >/dev/null; then
-              echo "backend ready after ${i}s"
+              echo "legacy Fastify ready after ${i}s"
               break
             fi
             if ! kill -0 $BACKEND_PID 2>/dev/null; then
-              echo "backend process died"
+              echo "legacy Fastify process died"
               exit 1
             fi
             sleep 1
           done
-          curl -sf http://localhost:3001/api/health || { echo "backend never became ready"; exit 1; }
+          curl -sf http://localhost:3001/api/health || { echo "legacy Fastify never became ready"; exit 1; }
           npx tsx src/tests/rt2-smoke.ts
 
   content-ops-smoke:
-    name: backend content ops smoke
+    name: legacy Fastify content ops smoke
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -286,7 +286,7 @@ jobs:
         run: |
           npm run db:migrate
           npm run db:seed
-      - name: Run backend + content ops smoke
+      - name: Run legacy Fastify + content ops smoke
         run: |
           set -eo pipefail
           nohup npm run start > /tmp/backend.log 2>&1 &
@@ -294,14 +294,14 @@ jobs:
           trap 'kill $BACKEND_PID 2>/dev/null || true; cat /tmp/backend.log' EXIT
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3001/api/health >/dev/null; then
-              echo "backend ready after ${i}s"
+              echo "legacy Fastify ready after ${i}s"
               break
             fi
             if ! kill -0 $BACKEND_PID 2>/dev/null; then
-              echo "backend process died"
+              echo "legacy Fastify process died"
               exit 1
             fi
             sleep 1
           done
-          curl -sf http://localhost:3001/api/health || { echo "backend never became ready"; exit 1; }
+          curl -sf http://localhost:3001/api/health || { echo "legacy Fastify never became ready"; exit 1; }
           npx tsx src/tests/content-ops-smoke.ts
